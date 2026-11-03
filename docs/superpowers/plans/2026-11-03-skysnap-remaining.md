@@ -21,7 +21,7 @@
 - **Files:** compose file has no `.env` interpolation for DB creds besides root password; `sql/init.sql` only (no `02-reader-user.sh` yet); `tests/conftest.py` `db` fixture skips (not fails) if MySQL unreachable; CI uses DB `weather` (not `weather_test`) and no CI-fail behaviour yet.
 - **Host Python:** venv stays Python 3.11.9 by decision (Airflow 3.3.2 supports 3.10-3.14); CI uses 3.12. 3.12 is not installed locally.
 - **Baseline (Task 0):** `ruff check .` -> All checks passed; `pytest -v` -> 24 passed, 1 skipped (DAG integrity, Airflow not on host).
-- **Doc locations:** plan and Phase 1 spec moved into `docs/superpowers/` (commit "docs: move spec and plan into docs/superpowers"). The Phase 2 spec was NOT present at Task 0 time and is still not found in the repo (see Task 0 Step 1 note).
+- **Doc locations:** plan and Phase 1 spec moved into `docs/superpowers/`. The Phase 2 spec was missing at Task 0 time; it was added later, and Task 0 Step 1 (reading it) was completed late on 2026-11-03. Spec vs plan naming differences (plan wins): spec `READER_PASSWORD` -> plan `SKYSNAP_READER_PASSWORD`; spec omits `ANSWER_ROW_LIMIT` (plan default 50).
 - **Gemini models:** TBD in Task B1.
 
 ## Global Constraints
