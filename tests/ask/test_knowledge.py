@@ -1,5 +1,4 @@
-import pytest
-
+from skysnap_ask.guard import guard_sql
 from skysnap_ask.knowledge import Chunk, load_chunks
 
 
@@ -27,6 +26,7 @@ def test_example_chunks_loaded():
         assert "\nSQL: " in c.text
 
 
-@pytest.mark.skip(reason="enabled in B3")
 def test_example_sql_passes_guard():
-    pass
+    for chunk in (c for c in load_chunks() if c.kind == "example"):
+        sql = chunk.text.split("\nSQL: ", 1)[1]
+        guard_sql(sql)
