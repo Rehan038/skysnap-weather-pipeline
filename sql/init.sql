@@ -1,6 +1,10 @@
 -- Weather ETL schema — idempotent (safe to re-run)
 -- §6 of the design spec
 
+CREATE DATABASE IF NOT EXISTS weather_test;
+GRANT ALL PRIVILEGES ON weather_test.* TO 'weather'@'%';
+FLUSH PRIVILEGES;
+
 CREATE TABLE IF NOT EXISTS dim_city (
     city_id   SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
     name      VARCHAR(64)       NOT NULL,
@@ -42,3 +46,4 @@ CREATE TABLE IF NOT EXISTS weather_rejects (
     PRIMARY KEY (id),
     KEY idx_rejects_run_date (run_date)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+

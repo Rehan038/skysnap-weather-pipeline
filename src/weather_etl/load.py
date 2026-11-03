@@ -8,18 +8,24 @@ import pymysql
 import pymysql.connections
 
 
-def get_connection() -> pymysql.connections.Connection:
-    """Return a new PyMySQL connection from WAREHOUSE_* environment variables.
+def get_connection(
+    host: str | None = None,
+    port: int | None = None,
+    user: str | None = None,
+    password: str | None = None,
+    database: str | None = None,
+) -> pymysql.connections.Connection:
+    """Return a new PyMySQL connection from environment variables or explicit parameters.
 
     Defaults: host=localhost, port=3306, user=weather, password=weather, db=weather.
     autocommit is set to False; the caller owns transactions.
     """
     return pymysql.connect(
-        host=os.getenv("WAREHOUSE_HOST", "localhost"),
-        port=int(os.getenv("WAREHOUSE_PORT", "3306")),
-        user=os.getenv("WAREHOUSE_USER", "weather"),
-        password=os.getenv("WAREHOUSE_PASSWORD", "weather"),
-        database=os.getenv("WAREHOUSE_DB", "weather"),
+        host=host or os.getenv("WAREHOUSE_HOST", "localhost"),
+        port=port or int(os.getenv("WAREHOUSE_PORT", "3306")),
+        user=user or os.getenv("WAREHOUSE_USER", "weather"),
+        password=password or os.getenv("WAREHOUSE_PASSWORD", "weather"),
+        database=database or os.getenv("WAREHOUSE_DB", "weather"),
         autocommit=False,
         charset="utf8mb4",
     )
@@ -135,3 +141,4 @@ def insert_rejects(
         cur.executemany(sql, params)
 
     return len(params)
+

@@ -1,5 +1,6 @@
 """Shared pytest fixtures — database connection for integration tests."""
 
+import os
 import re
 
 import pytest
@@ -27,12 +28,25 @@ def _exec_sql_file(conn, sql_path: str) -> None:
 def db():
     """Provide a clean database connection for each test.
 
+    Uses TEST_WAREHOUSE_DB (default: weather_test) and TEST_WAREHOUSE_PORT (default: 3307).
+    Raises immediately if the target database does not end with '_test'.
     Skips the test if MySQL is unreachable.
     Creates the schema, clears test tables, then yields the connection.
     After the test, rolls back any uncommitted changes and closes.
     """
+    test_db = os.getenv("TEST_WAREHOUSE_DB", "weather_test")
+    if not test_db.endswith("_test"):
+        raise ValueError(f"Safety check failed: test database '{test_db}' must end with '_test'")
+
+    test_port = int(os.getenv("TEST_WAREHOUSE_PORT", "3307"))
+    test_host = os.getenv("TEST_WAREHOUSE_HOST", os.getenv("WAREHOUSE_HOST", "localhost"))
+
     try:
-        conn = get_connection()
+        conn = get_connection(
+            host=test_host,
+            port=test_port,
+            database=test_db,
+        )
     except Exception:  # noqa: BLE001
         pytest.skip("MySQL not reachable")
 

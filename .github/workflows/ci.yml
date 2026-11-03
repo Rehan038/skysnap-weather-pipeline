@@ -45,11 +45,17 @@ jobs:
       - name: Lint with ruff
         run: ruff check .
 
+      - name: Initialize test database
+        run: |
+          mysql -h 127.0.0.1 -u root -proot -e "CREATE DATABASE IF NOT EXISTS weather_test; GRANT ALL PRIVILEGES ON weather_test.* TO 'weather'@'%'; FLUSH PRIVILEGES;"
+
       - name: Run tests
         env:
           WAREHOUSE_HOST: 127.0.0.1
-          WAREHOUSE_PORT: 3306
+          TEST_WAREHOUSE_HOST: 127.0.0.1
+          TEST_WAREHOUSE_PORT: 3306
+          TEST_WAREHOUSE_DB: weather_test
           WAREHOUSE_USER: weather
           WAREHOUSE_PASSWORD: weather
-          WAREHOUSE_DB: weather
         run: pytest -v
+
