@@ -1,4 +1,6 @@
-# Weather ETL
+# SkySnap — Indian Weather Data Pipeline
+
+SkySnap is a daily data pipeline that collects hourly weather for five Indian cities, validates it and stores it in a queryable warehouse. Built with Apache Airflow 3, MySQL 8, Docker Compose and the Open-Meteo API.
 
 A daily [Apache Airflow 3](https://airflow.apache.org/) pipeline that pulls yesterday's **hourly weather** for **5 Indian cities** from the [Open-Meteo](https://open-meteo.com/) API, quarantines bad rows, and upserts the rest into a **MySQL 8** warehouse — runnable with a single `docker compose up`.
 
@@ -36,8 +38,8 @@ flowchart LR
 
 ```bash
 # 1. Clone and enter the project
-git clone <repo-url>
-cd weather-etl
+git clone https://github.com/Rehan038/skysnap-weather-pipeline.git
+cd skysnap-weather-pipeline
 
 # 2. Create the environment file
 cp .env.example .env
@@ -48,7 +50,7 @@ docker compose up -d --build
 
 # 4. Wait ~60 s for all services to be healthy, then open the Airflow UI
 open http://localhost:8080
-# Default credentials: admin / admin
+# No login is required: SIMPLE_AUTH_MANAGER_ALL_ADMINS signs you in automatically
 
 # 5. Unpause the DAG in the UI — catchup runs will start from 2026-10-01
 ```
@@ -259,3 +261,9 @@ Empty set (0 rows) — all rows passed validation checks.
 - **`SIMPLE_AUTH_MANAGER_ALL_ADMINS`:** This setting grants all users admin access and is suitable for local development only. Do not use in production.
 
 - **Airflow JWT secret:** The default `AIRFLOW__API_AUTH__JWT_SECRET` in `docker-compose.yml` is a local-development placeholder. Override it (via `.env`) in any real deployment.
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE).

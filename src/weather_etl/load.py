@@ -61,7 +61,7 @@ def upsert_weather(
 
     city_map = _fetch_city_map(conn)
 
-    # Review Focus 4: validate all cities before writing anything
+    # Fail before writing anything if any city is unknown
     for row in rows:
         name = row["city"]
         if name not in city_map:

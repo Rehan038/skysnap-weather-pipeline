@@ -38,7 +38,7 @@ def fetch_hourly(city: dict, day: datetime.date) -> list[dict]:
 
     body = response.json()
 
-    # Review Focus 5: handle {"error": true, "reason": ...}
+    # Open-Meteo can return HTTP 200 with {"error": true, "reason": ...}; treat that as a failure
     if body.get("error"):
         reason = body.get("reason", "Unknown API error")
         raise RuntimeError(f"Open-Meteo API error: {reason}")
@@ -48,7 +48,7 @@ def fetch_hourly(city: dict, day: datetime.date) -> list[dict]:
 
     rows = []
     for i, observed_at in enumerate(times):
-        # Review Focus 3: missing variable key → None for every hour
+        # A variable absent from the payload becomes None for every hour
         temp = _get_value(hourly, "temperature_2m", i)
         humidity = _get_value(hourly, "relative_humidity_2m", i)
         precip = _get_value(hourly, "precipitation", i)

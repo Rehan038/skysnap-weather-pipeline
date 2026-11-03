@@ -56,7 +56,7 @@ def test_reject_keeps_original_row():
 
 
 def test_boundary_values_accepted():
-    """Review Focus 1: boundary values (inclusive) must be accepted."""
+    """Values exactly on the limits (inclusive) are accepted."""
     rows = [
         row(temperature_c=55.0),
         row(temperature_c=-10.0),
@@ -70,7 +70,7 @@ def test_boundary_values_accepted():
 
 
 def test_null_weather_code_allowed():
-    """Review Focus 2: null weather_code must not cause rejection."""
+    """A null weather_code does not cause rejection."""
     good, _ = split_rows([row(weather_code=None)])
     assert len(good) == 1
 

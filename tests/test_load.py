@@ -69,7 +69,7 @@ def test_rollback_leaves_no_rows(db):
 
 
 def test_unknown_city_raises(db):
-    """Review Focus 4: unknown city must raise ValueError before writing anything."""
+    """An unknown city must raise ValueError before anything is written."""
     with pytest.raises(ValueError, match="unknown city: Atlantis"):
         upsert_weather(db, [row("2026-11-02T00:00", city="Atlantis")], RUN)
     assert count(db, "weather_hourly") == 0

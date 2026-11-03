@@ -87,7 +87,7 @@ def test_http_error_raises():
 
 @responses_lib.activate
 def test_error_payload_raises():
-    """Review Focus 5: 200 + {"error": true, "reason": "x"} must raise RuntimeError."""
+    """A 200 response with {"error": true, "reason": "x"} must raise RuntimeError."""
     responses_lib.add(
         responses_lib.GET,
         API_URL,
@@ -100,7 +100,7 @@ def test_error_payload_raises():
 
 @responses_lib.activate
 def test_missing_variable_becomes_none():
-    """Review Focus 3: payload without 'precipitation' key → precipitation_mm is None."""
+    """A payload without the 'precipitation' key gives precipitation_mm = None."""
     payload_no_precip = {
         "hourly": {
             "time": TIMES,
