@@ -1,6 +1,7 @@
 """Shared test doubles for the ask package."""
 
 from types import SimpleNamespace
+from typing import ClassVar
 
 
 class FakeGenAIClient:
@@ -42,3 +43,22 @@ def text_response(text):
 
 def embed_response(vectors):
     return SimpleNamespace(embeddings=[SimpleNamespace(values=v) for v in vectors])
+
+
+class FakeEmbedder:
+    """Maps keywords to fixed unit axes; counts calls and records texts."""
+
+    KEYWORDS: ClassVar[list[str]] = ["temperature", "rain", "wind", "humidity"]
+
+    def __init__(self):
+        self.calls = []
+
+    def embed(self, texts):
+        self.calls.append(list(texts))
+        out = []
+        for text in texts:
+            low = text.lower()
+            vec = [float(low.count(k)) for k in self.KEYWORDS]
+            vec.append(0.01)  # keeps every vector non-zero
+            out.append(vec)
+        return out
