@@ -55,7 +55,13 @@ class GeminiLLM:
         response = self._call(
             lambda: self._client.models.embed_content(model=self._embed_model, contents=texts)
         )
-        return [list(e.values) for e in response.embeddings]
+        vectors = [list(e.values) for e in response.embeddings]
+        if len(vectors) != len(texts):
+            raise ValueError(
+                f"Embedding model returned {len(vectors)} vectors for {len(texts)} texts; "
+                "expected one vector per text"
+            )
+        return vectors
 
     def generate_json(self, prompt: str, schema: dict) -> dict:
         # response_json_schema takes plain JSON Schema (e.g. "type": ["string", "null"]);

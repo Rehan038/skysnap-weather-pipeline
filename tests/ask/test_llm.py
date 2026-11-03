@@ -47,6 +47,12 @@ def test_embed_returns_vectors():
     assert client.embed_calls[0] == {"model": "e", "contents": ["a", "b"]}
 
 
+def test_embed_raises_on_vector_count_mismatch():
+    client = FakeGenAIClient(embed=[embed_response([[0.1, 0.2]])])
+    with pytest.raises(ValueError, match="1 vectors for 2 texts"):
+        _llm(client, []).embed(["a", "b"])
+
+
 def test_retries_on_429_then_succeeds():
     client = FakeGenAIClient(
         generate=[_client_error(429), _client_error(429), text_response("OK")]
