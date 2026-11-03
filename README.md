@@ -1,5 +1,7 @@
 # SkySnap — Indian Weather Data Pipeline
 
+[![CI](https://github.com/Rehan038/skysnap-weather-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/Rehan038/skysnap-weather-pipeline/actions/workflows/ci.yml)
+
 SkySnap is a daily data pipeline that collects hourly weather for five Indian cities, validates it and stores it in a queryable warehouse. Built with Apache Airflow 3, MySQL 8, Docker Compose and the Open-Meteo API.
 
 A daily [Apache Airflow 3](https://airflow.apache.org/) pipeline that pulls yesterday's **hourly weather** for **5 Indian cities** from the [Open-Meteo](https://open-meteo.com/) API, quarantines bad rows, and upserts the rest into a **MySQL 8** warehouse — runnable with a single `docker compose up`.
