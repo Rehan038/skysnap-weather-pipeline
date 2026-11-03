@@ -20,6 +20,8 @@ denominator rather than being counted wrong.
 
 from __future__ import annotations
 
+import argparse
+import re
 import sys
 import time
 from collections.abc import Callable
@@ -44,6 +46,7 @@ class EvalRow:
     generated_sql: str | None
     verdict: str
     note: str = ""
+    carried: bool = False
 
 
 def _cell(value) -> str:
@@ -131,6 +134,59 @@ def _one_line(sql: str | None) -> str:
     return " ".join((sql or "-").split())
 
 
+class MergeError(Exception):
+    pass
+
+
+_ROW_RE = re.compile(r"^\| (q\w+) \| (\S+) \| (\S+) \| (.*) \|$")
+CARRIED_NOTE = "carried over from an earlier run; see that run's SQL"
+
+
+def parse_results_table(md: str) -> list[EvalRow]:
+    """Read result rows back from a report; the rows are marked ``carried``."""
+    rows = []
+    for line in md.splitlines():
+        m = _ROW_RE.match(line.rstrip())
+        if not m:
+            continue
+        id_, status, verdict, sql = m.groups()
+        sql = sql.replace("\\|", "|")
+        rows.append(
+            EvalRow(id_, "", None, status, None if sql == "-" else sql, verdict,
+                    CARRIED_NOTE, carried=True)
+        )
+    return rows
+
+
+def merge_rows(
+    previous: list[EvalRow], new: list[EvalRow], order: list[str]
+) -> tuple[list[EvalRow], list[str]]:
+    """Return (rows in ``order``, ids present in neither previous nor new)."""
+    by_id = {r.id: r for r in previous}
+    by_id.update({r.id: r for r in new})
+    missing = [i for i in order if i not in by_id]
+    return [by_id[i] for i in order if i in by_id], missing
+
+
+def check_same_model(previous_md: str, model: str) -> None:
+    m = re.search(r"text model: (.+?), embedding model", previous_md)
+    if m and m.group(1) != model:
+        raise MergeError(
+            f"cannot merge: earlier run used text model {m.group(1)!r} but the current "
+            f"model is {model!r}; a score must name one model"
+        )
+
+
+def parse_ids(arg: str | None, known: list[str]) -> list[str]:
+    if not arg:
+        return list(known)
+    wanted = [p.strip() for p in arg.split(",") if p.strip()]
+    unknown = [i for i in wanted if i not in known]
+    if unknown:
+        raise ValueError(f"unknown question id(s): {', '.join(unknown)}")
+    return [i for i in known if i in wanted]
+
+
 def render_report(rows: list[EvalRow], settings, today: date) -> str:
     out = [
         "# Ask SkySnap eval - "
@@ -148,8 +204,10 @@ def render_report(rows: list[EvalRow], settings, today: date) -> str:
     if not bad:
         out.append("None.")
     for r in bad:
-        out.append(f"### {r.id}: {r.question}")
-        if r.verdict == UNAVAILABLE:
+        out.append(f"### {r.id}: {r.question}" if r.question else f"### {r.id}")
+        if r.carried:
+            out.append(f"Note: {r.verdict} - {CARRIED_NOTE}; no reference SQL is stored")
+        elif r.verdict == UNAVAILABLE:
             out.append(f"Note: UNAVAILABLE - {r.note}")
         else:
             out.append(f"Note: {r.note}")
@@ -159,23 +217,52 @@ def render_report(rows: list[EvalRow], settings, today: date) -> str:
     return "\n".join(out) + "\n"
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Held-out evaluation for Ask SkySnap")
+    parser.add_argument("--ids", help="comma-separated question ids to run (default: all)")
+    args = parser.parse_args(argv)
+    questions = yaml.safe_load((ROOT / "eval" / "questions.yaml").read_text(encoding="utf-8"))
+    all_ids = [q["id"] for q in questions]
+    try:
+        chosen = parse_ids(args.ids, all_ids)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     from skysnap_ask.config import load_settings
     from skysnap_ask.db import run_readonly
     from skysnap_ask.factory import build_service
 
     settings = load_settings()
+    report_path = ROOT / "eval" / "last_run.md"
+    previous: list[EvalRow] = []
+    if args.ids:
+        prev_md = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
+        try:
+            check_same_model(prev_md, settings.gemini_model)
+        except MergeError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        previous = parse_results_table(prev_md)
+
     service = build_service(settings)
-    questions = yaml.safe_load((ROOT / "eval" / "questions.yaml").read_text(encoding="utf-8"))
+    selected = [q for q in questions if q["id"] in chosen]
     rows = run_eval(
-        service.ask, lambda sql: run_readonly(sql, settings), questions, time.sleep
+        service.ask, lambda sql: run_readonly(sql, settings), selected, time.sleep
     )
+    if args.ids:
+        rows, missing = merge_rows(previous, rows, all_ids)
+        if missing:
+            print(f"WARNING: no earlier results for: {', '.join(missing)}", file=sys.stderr)
+        text = {q["id"]: q["question"] for q in questions}
+        for r in rows:
+            if r.carried:
+                r.question = text[r.id]
     print("id | status | match | sql")
     for r in rows:
         print(f"{r.id} | {r.status} | {r.verdict} | {_one_line(r.generated_sql)}")
     print(accuracy_line(rows))
     report = render_report(rows, settings, date.today())
-    (ROOT / "eval" / "last_run.md").write_text(report, encoding="utf-8")
+    report_path.write_text(report, encoding="utf-8")
     return 0
 
 
