@@ -103,10 +103,12 @@ services:
       MYSQL_USER: weather
       MYSQL_PASSWORD: weather
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      SKYSNAP_READER_PASSWORD: ${SKYSNAP_READER_PASSWORD}
     ports:
       - "${WAREHOUSE_HOST_PORT:-3307}:3306"
     volumes:
       - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./sql/02-reader-user.sh:/docker-entrypoint-initdb.d/02-reader-user.sh:ro
       - warehouse-data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "weather", "-pweather"]

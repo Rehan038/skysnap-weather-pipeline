@@ -62,3 +62,48 @@ class FakeEmbedder:
             vec.append(0.01)  # keeps every vector non-zero
             out.append(vec)
         return out
+
+
+class FakeLLM:
+    """Scripted generate_json / generate_text; records every prompt.
+
+    An item that is an Exception instance is raised, anything else is returned.
+    """
+
+    def __init__(self, json_responses=None, text_responses=None):
+        self._json = list(json_responses or [])
+        self._text = list(text_responses or [])
+        self.json_prompts = []
+        self.text_prompts = []
+
+    def generate_json(self, prompt, schema):
+        self.json_prompts.append(prompt)
+        return FakeGenAIClient._next(self._json)
+
+    def generate_text(self, prompt):
+        self.text_prompts.append(prompt)
+        return FakeGenAIClient._next(self._text)
+
+
+class FakeRetriever:
+    """Returns a fixed list of chunks and records the searches."""
+
+    def __init__(self, chunks=None):
+        self.chunks = list(chunks or [])
+        self.calls = []
+
+    def search(self, question, k):
+        self.calls.append((question, k))
+        return list(self.chunks)
+
+
+class FakeRunner:
+    """Scripted runner: QueryResult returned, exceptions raised; records SQL."""
+
+    def __init__(self, script):
+        self._script = list(script)
+        self.calls = []
+
+    def __call__(self, sql):
+        self.calls.append(sql)
+        return FakeGenAIClient._next(self._script)
