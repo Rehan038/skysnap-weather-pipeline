@@ -106,7 +106,7 @@ services:
       MYSQL_PASSWORD: weather
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
     ports:
-      - "3306:3306"
+      - "${WAREHOUSE_HOST_PORT:-3307}:3306"
     volumes:
       - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - warehouse-data:/var/lib/mysql
@@ -120,3 +120,4 @@ services:
 volumes:
   postgres-data:
   warehouse-data:
+

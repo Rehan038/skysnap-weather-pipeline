@@ -84,8 +84,12 @@ pip install -r requirements-dev.txt
 # Run unit tests (no MySQL needed — load tests are auto-skipped)
 pytest -v
 
-# With MySQL running (Docker or local), all tests including load tests will run:
-WAREHOUSE_HOST=127.0.0.1 pytest -v
+# With MySQL running in Docker (exposed on host port 3307), all tests including load tests run:
+TEST_WAREHOUSE_PORT=3307 TEST_WAREHOUSE_DB=weather_test pytest -v
+
+# Note: Tests connect to `weather_test` on host port 3307 (default WAREHOUSE_HOST_PORT).
+# The pipeline inside Docker continues using `warehouse:3306` and the production `weather` database.
+# Tests will fail immediately with a safety check error if TEST_WAREHOUSE_DB does not end with `_test`.
 
 # Lint
 ruff check .
@@ -197,3 +201,4 @@ ORDER BY cnt DESC;
 - **Open-Meteo Forecast API 92-day window:** The free forecast endpoint only serves data within ~92 days of the current date. Dates older than that will return empty or error responses. Use the [ERA5 historical API](https://open-meteo.com/en/docs/historical-weather-api) for long backfills.
 - **Gridded model data, not station readings:** Temperatures and precipitation are interpolated from weather models, not measured at a physical station — they may differ from local observations.
 - **`SIMPLE_AUTH_MANAGER_ALL_ADMINS`:** This setting grants all users admin access and is suitable for local development only. Do not use in production.
+
