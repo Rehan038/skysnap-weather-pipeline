@@ -19,7 +19,7 @@
 - **MySQL host port:** `3307` (`WAREHOUSE_HOST_PORT`, default 3307 -> container 3306). Warehouse user/pass `weather`/`weather`, DB `weather`; root password `${MYSQL_ROOT_PASSWORD:-rootpassword}`.
 - **Env vars:** API URL override `WEATHER_API_URL` (src/weather_etl/config.py); test DB `TEST_WAREHOUSE_DB` (default `weather_test`, must end `_test`), `TEST_WAREHOUSE_PORT` (default 3307), `TEST_WAREHOUSE_HOST`, plus `WAREHOUSE_*`.
 - **Files:** compose file has no `.env` interpolation for DB creds besides root password; `sql/init.sql` only (no `02-reader-user.sh` yet); `tests/conftest.py` `db` fixture skips (not fails) if MySQL unreachable; CI uses DB `weather` (not `weather_test`) and no CI-fail behaviour yet.
-- **Host Python:** venv is Python 3.11.9 (plan says 3.12; CI uses 3.12).
+- **Host Python:** venv stays Python 3.11.9 by decision (Airflow 3.3.2 supports 3.10-3.14); CI uses 3.12. 3.12 is not installed locally.
 - **Baseline (Task 0):** `ruff check .` -> All checks passed; `pytest -v` -> 24 passed, 1 skipped (DAG integrity, Airflow not on host).
 - **Doc locations:** plan and Phase 1 spec moved into `docs/superpowers/` (commit "docs: move spec and plan into docs/superpowers"). The Phase 2 spec was NOT present at Task 0 time and is still not found in the repo (see Task 0 Step 1 note).
 - **Gemini models:** TBD in Task B1.

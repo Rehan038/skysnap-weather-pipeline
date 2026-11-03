@@ -258,3 +258,4 @@ Empty set (0 rows) — all rows passed validation checks.
 - **Gridded model data, not station readings:** Temperatures and precipitation are interpolated from weather models, not measured at a physical station — they may differ from local observations.
 - **`SIMPLE_AUTH_MANAGER_ALL_ADMINS`:** This setting grants all users admin access and is suitable for local development only. Do not use in production.
 
+- **Airflow JWT secret:** The default `AIRFLOW__API_AUTH__JWT_SECRET` in `docker-compose.yml` is a local-development placeholder. Override it (via `.env`) in any real deployment.
