@@ -1,0 +1,106 @@
+- question: Which city had the highest temperature on 12 October 2026, and what was it?
+  sql: >-
+    SELECT c.name, MAX(h.temperature_c) AS max_temp_c
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE h.observed_at >= '2026-10-12' AND h.observed_at < '2026-10-13'
+    GROUP BY c.name ORDER BY max_temp_c DESC LIMIT 1
+
+- question: How much total rain fell in Mumbai on each day between 5 and 11 October 2026?
+  sql: >-
+    SELECT DATE(h.observed_at) AS day, SUM(h.precipitation_mm) AS total_rain_mm
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE c.name = 'Mumbai' AND h.observed_at >= '2026-10-05' AND h.observed_at < '2026-10-12'
+    GROUP BY DATE(h.observed_at) ORDER BY day
+
+- question: What was the average humidity in each city during October 2026?
+  sql: >-
+    SELECT c.name, ROUND(AVG(h.humidity_pct), 1) AS avg_humidity_pct
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE h.observed_at >= '2026-10-01' AND h.observed_at < '2026-11-01'
+    GROUP BY c.name ORDER BY avg_humidity_pct DESC
+
+- question: Rank the cities by their highest recorded wind speed from 15 to 21 October 2026.
+  sql: >-
+    SELECT c.name, MAX(h.wind_kmh) AS max_wind_kmh
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE h.observed_at >= '2026-10-15' AND h.observed_at < '2026-10-22'
+    GROUP BY c.name ORDER BY max_wind_kmh DESC
+
+- question: On how many days did Chennai get more than 5 mm of rain in October 2026?
+  sql: >-
+    SELECT COUNT(*) AS rainy_days FROM (
+      SELECT DATE(h.observed_at) AS day
+      FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+      WHERE c.name = 'Chennai' AND h.observed_at >= '2026-10-01' AND h.observed_at < '2026-11-01'
+      GROUP BY DATE(h.observed_at) HAVING SUM(h.precipitation_mm) > 5
+    ) d
+
+- question: Compare the daily maximum temperature of Delhi and Kolkata from 20 to 24 October 2026.
+  sql: >-
+    SELECT DATE(h.observed_at) AS day, c.name, MAX(h.temperature_c) AS max_temp_c
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE c.name IN ('Delhi', 'Kolkata') AND h.observed_at >= '2026-10-20' AND h.observed_at < '2026-10-25'
+    GROUP BY DATE(h.observed_at), c.name ORDER BY day, c.name
+
+- question: What was the coldest hour recorded in Bengaluru in October 2026?
+  sql: >-
+    SELECT h.observed_at, h.temperature_c
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE c.name = 'Bengaluru' AND h.observed_at >= '2026-10-01' AND h.observed_at < '2026-11-01'
+      AND h.temperature_c IS NOT NULL
+    ORDER BY h.temperature_c ASC, h.observed_at LIMIT 1
+
+- question: What is the average temperature for each state?
+  sql: >-
+    SELECT c.state, ROUND(AVG(h.temperature_c), 2) AS avg_temp_c
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    GROUP BY c.state ORDER BY avg_temp_c DESC
+
+- question: How many hours of rain (precipitation above 0) did each city have on 9 October 2026?
+  sql: >-
+    SELECT c.name, COUNT(*) AS rainy_hours
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE h.observed_at >= '2026-10-09' AND h.observed_at < '2026-10-10' AND h.precipitation_mm > 0
+    GROUP BY c.name ORDER BY rainy_hours DESC
+
+- question: Show the hour-by-hour temperature in Kolkata on 18 October 2026.
+  sql: >-
+    SELECT h.observed_at, h.temperature_c
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE c.name = 'Kolkata' AND h.observed_at >= '2026-10-18' AND h.observed_at < '2026-10-19'
+    ORDER BY h.observed_at
+
+- question: How many thunderstorm hours (weather code 95 or above) did each city have in October 2026?
+  sql: >-
+    SELECT c.name, COUNT(*) AS thunderstorm_hours
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE h.weather_code >= 95 AND h.observed_at >= '2026-10-01' AND h.observed_at < '2026-11-01'
+    GROUP BY c.name ORDER BY thunderstorm_hours DESC
+
+- question: What is the latest observation we have for each city?
+  sql: >-
+    SELECT c.name, h.observed_at, h.temperature_c, h.humidity_pct, h.precipitation_mm, h.wind_kmh
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE h.observed_at = (SELECT MAX(h2.observed_at) FROM weather_hourly h2 WHERE h2.city_id = h.city_id)
+    ORDER BY c.name
+
+- question: Which hour in October 2026 had the heaviest rainfall in any city?
+  sql: >-
+    SELECT c.name, h.observed_at, h.precipitation_mm
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE h.observed_at >= '2026-10-01' AND h.observed_at < '2026-11-01'
+      AND h.precipitation_mm IS NOT NULL
+    ORDER BY h.precipitation_mm DESC, h.observed_at LIMIT 1
+
+- question: How many rows were rejected for each reason?
+  sql: >-
+    SELECT reason, COUNT(*) AS rejected_rows
+    FROM weather_rejects
+    GROUP BY reason ORDER BY rejected_rows DESC
+
+- question: Which cities had humidity above 85 percent for at least 10 hours on 22 October 2026?
+  sql: >-
+    SELECT c.name, COUNT(*) AS humid_hours
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE h.observed_at >= '2026-10-22' AND h.observed_at < '2026-10-23' AND h.humidity_pct > 85
+    GROUP BY c.name HAVING COUNT(*) >= 10 ORDER BY humid_hours DESC
