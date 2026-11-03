@@ -14,3 +14,6 @@ docs/superpowers/
 /2026-11-03-weather-etl.md
 .cache/
 .coverage
+
+# Local database backups
+backup_*.sql
