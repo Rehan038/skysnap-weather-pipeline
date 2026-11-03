@@ -88,3 +88,4 @@ def test_rate_above_threshold_raises():
 def test_zero_rows_raises():
     with pytest.raises(DataQualityError):
         check_reject_rate([], [])
+

@@ -114,3 +114,4 @@ def test_missing_variable_becomes_none():
     responses_lib.add(responses_lib.GET, API_URL, json=payload_no_precip, status=200)
     rows = fetch_hourly(BENGALURU, DAY)
     assert all(r["precipitation_mm"] is None for r in rows)
+

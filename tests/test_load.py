@@ -73,3 +73,4 @@ def test_unknown_city_raises(db):
     with pytest.raises(ValueError, match="unknown city: Atlantis"):
         upsert_weather(db, [row("2026-11-02T00:00", city="Atlantis")], RUN)
     assert count(db, "weather_hourly") == 0
+

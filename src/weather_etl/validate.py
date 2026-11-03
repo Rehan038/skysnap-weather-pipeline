@@ -83,3 +83,4 @@ def check_reject_rate(
             f"Reject rate {rate:.1%} exceeds threshold {threshold:.1%} "
             f"({len(rejects)} of {total} rows rejected)."
         )
+

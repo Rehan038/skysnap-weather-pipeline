@@ -25,3 +25,4 @@ def test_hourly_vars_and_threshold():
     ]
     assert config.REJECT_THRESHOLD == 0.10
     assert config.API_URL == "https://api.open-meteo.com/v1/forecast"
+

@@ -77,3 +77,4 @@ def _get_value(hourly: dict, var: str, index: int):
         return None
     values = hourly[var]
     return values[index] if index < len(values) else None
+
