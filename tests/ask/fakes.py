@@ -1,5 +1,6 @@
 """Shared test doubles for the ask package."""
 
+from datetime import date
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -107,3 +108,24 @@ class FakeRunner:
     def __call__(self, sql):
         self.calls.append(sql)
         return FakeGenAIClient._next(self._script)
+
+
+class FakeService:
+    """UI stand-in: fixed AskResult per question; `runner` returns a fixed range row."""
+
+    def __init__(self, result=None, range_row=None):
+        self.result = result
+        self.asked = []
+        self.range_calls = []
+        self._range_row = range_row
+
+    def ask(self, question):
+        self.asked.append(question)
+        return self.result
+
+    def runner(self, sql):
+        from skysnap_ask.db import QueryResult
+
+        self.range_calls.append(sql)
+        row = self._range_row or (date(2026, 10, 1), date(2026, 10, 7))
+        return QueryResult(columns=["min", "max"], rows=[row])

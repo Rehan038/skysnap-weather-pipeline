@@ -117,7 +117,30 @@ services:
       retries: 5
       start_period: 30s
 
+  # -- Ask SkySnap (Streamlit UI) ---------------------------------------------
+  ask:
+    build:
+      context: .
+      dockerfile: Dockerfile.ask
+    image: skysnap-ask:latest
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL}
+      GEMINI_EMBED_MODEL: ${GEMINI_EMBED_MODEL}
+      SKYSNAP_READER_PASSWORD: ${SKYSNAP_READER_PASSWORD}
+      READER_HOST: warehouse
+      READER_PORT: "3306"
+      INDEX_CACHE_PATH: /cache/ask_index.json
+    ports:
+      - "8501:8501"
+    volumes:
+      - ask-cache:/cache
+    depends_on:
+      warehouse:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   warehouse-data:
+  ask-cache:
 
