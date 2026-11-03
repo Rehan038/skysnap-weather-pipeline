@@ -245,6 +245,10 @@ Empty set (0 rows) — all rows passed validation checks.
 
 ---
 
+## Failure Handling
+
+Each task retries 3 times with exponential backoff (`retry_delay` 2 minutes, doubling per attempt). This was verified inside Airflow, not just in Python: with the API URL pointed at a dead address, all 5 per-city `extract` tasks failed with `Connection refused`, retried 3 more times (gaps of roughly 5, 13 and 27 minutes in the observed run, because Airflow adds jitter to the backoff), then ended `failed`; `validate` and `load` became `upstream_failed`. The failed run wrote nothing, and the previously loaded rows (24 per city for 2026-10-10) were unchanged. After restoring the real URL and clearing the run, it finished `success` with the same 24 rows per city.
+
 ## Design Decisions
 
 | Decision | Rationale |
