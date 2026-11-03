@@ -4,13 +4,13 @@ import pytest
 
 airflow = pytest.importorskip("airflow")
 
-from airflow.models import DagBag
+from airflow.dag_processing.dagbag import DagBag
 
 
 def test_dag_loads_without_errors():
     bag = DagBag(dag_folder="dags")
     assert bag.import_errors == {}, f"DAG import errors: {bag.import_errors}"
-    dag = bag.get_dag("weather_etl")
+    dag = bag.dags.get("weather_etl")
     assert dag is not None, "DAG 'weather_etl' not found"
     assert {t.task_id for t in dag.tasks} == {"extract", "validate", "load"}
     assert dag.catchup is True
@@ -24,7 +24,7 @@ def test_timetable_run_firing_on_oct_2_fetches_oct_1():
     from pendulum import datetime
 
     bag = DagBag(dag_folder="dags")
-    dag = bag.get_dag("weather_etl")
+    dag = bag.dags.get("weather_etl")
     assert dag is not None
 
     client_tt = dag.timetable
