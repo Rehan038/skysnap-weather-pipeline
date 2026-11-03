@@ -1,0 +1,75 @@
+# Held-out evaluation set for Ask SkySnap. These must never be copied into
+# src/skysnap_ask/knowledge/examples.yaml. reference_sql: null means the
+# question is out of scope and the service must refuse.
+- id: q01
+  question: What was the average wind speed in Delhi from 3 to 9 October 2026?
+  reference_sql: >-
+    SELECT AVG(h.wind_kmh) AS avg_wind_kmh
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE c.name = 'Delhi' AND h.observed_at >= '2026-10-03' AND h.observed_at < '2026-10-10'
+
+- id: q02
+  question: What was the total rainfall in Kolkata between 25 and 31 October 2026?
+  reference_sql: >-
+    SELECT SUM(h.precipitation_mm) AS total_rain_mm
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE c.name = 'Kolkata' AND h.observed_at >= '2026-10-25' AND h.observed_at < '2026-11-01'
+
+- id: q03
+  question: What was the lowest humidity each city recorded between 10 and 14 October 2026?
+  reference_sql: >-
+    SELECT c.name, MIN(h.humidity_pct) AS min_humidity_pct
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE h.observed_at >= '2026-10-10' AND h.observed_at < '2026-10-15'
+    GROUP BY c.name ORDER BY c.name
+
+- id: q04
+  question: Which three cities had the warmest average temperature on 27 October 2026?
+  reference_sql: >-
+    SELECT c.name, ROUND(AVG(h.temperature_c), 1) AS avg_temp_c
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE h.observed_at >= '2026-10-27' AND h.observed_at < '2026-10-28'
+    GROUP BY c.name ORDER BY AVG(h.temperature_c) DESC LIMIT 3
+
+- id: q05
+  question: Rank the cities from wettest to driest by total rainfall between 23 and 29 October 2026.
+  reference_sql: >-
+    SELECT c.name, SUM(h.precipitation_mm) AS total_rain_mm
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE h.observed_at >= '2026-10-23' AND h.observed_at < '2026-10-30'
+    GROUP BY c.name ORDER BY total_rain_mm DESC
+
+- id: q06
+  question: What was the humidity in Bengaluru at 3 pm on 7 October 2026?
+  reference_sql: >-
+    SELECT h.humidity_pct
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE c.name = 'Bengaluru' AND h.observed_at = '2026-10-07 15:00:00'
+
+- id: q07
+  question: What was the temperature in Mumbai at noon on 29 October 2026?
+  reference_sql: >-
+    SELECT h.temperature_c
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE c.name = 'Mumbai' AND h.observed_at = '2026-10-29 12:00:00'
+
+- id: q08
+  question: Show the wind speed hour by hour in Mumbai on 14 October 2026.
+  reference_sql: >-
+    SELECT h.observed_at, h.wind_kmh
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE c.name = 'Mumbai' AND h.observed_at >= '2026-10-14' AND h.observed_at < '2026-10-15'
+    ORDER BY h.observed_at
+
+- id: q09
+  question: How did the average temperature in Mumbai and Bengaluru compare from 26 to 30 October 2026?
+  reference_sql: >-
+    SELECT c.name, AVG(h.temperature_c) AS avg_temp_c
+    FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id
+    WHERE c.name IN ('Mumbai', 'Bengaluru')
+      AND h.observed_at >= '2026-10-26' AND h.observed_at < '2026-10-31'
+    GROUP BY c.name ORDER BY c.name
+
+- id: q10
+  question: Should I carry an umbrella in Pune tomorrow?
+  reference_sql: null
