@@ -9,3 +9,7 @@ logs/
 dist/
 build/
 
+
+# Markdown is local-only except the README
+*.md
+!README.md
