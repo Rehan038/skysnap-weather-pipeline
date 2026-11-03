@@ -20,6 +20,9 @@ def _exec_sql_file(conn, sql_path: str) -> None:
 
     with conn.cursor() as cur:
         for stmt in statements:
+            # Skip administrative statements that regular users cannot run
+            if stmt.upper().startswith("GRANT") or stmt.upper().startswith("FLUSH"):
+                continue
             cur.execute(stmt)
     conn.commit()
 

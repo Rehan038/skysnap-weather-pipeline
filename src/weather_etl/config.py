@@ -1,6 +1,8 @@
 """Configuration for the Weather ETL pipeline."""
 
-API_URL = "https://api.open-meteo.com/v1/forecast"
+import os
+
+API_URL = os.getenv("WEATHER_API_URL", "https://api.open-meteo.com/v1/forecast")
 
 TIMEZONE = "Asia/Kolkata"
 
@@ -27,3 +29,4 @@ HUMIDITY_MIN = 0.0
 HUMIDITY_MAX = 100.0
 
 REJECT_THRESHOLD = 0.10
+
