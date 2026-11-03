@@ -57,12 +57,13 @@ class AskService:
         self.max_rows = max_rows
         self.answer_row_limit = answer_row_limit
 
-    def ask(self, question: str) -> AskResult:
+    def ask(self, question: str, answer: bool = True) -> AskResult:
+        """Answer a question; with answer=False stop after running the SQL (no phrasing call)."""
         if not question or not question.strip():
             return AskResult(question=question, status="failed", error=BLANK_QUESTION_ERROR)
         result = AskResult(question=question, status="failed")
         try:
-            self._run(question, result)
+            self._run(question, result, answer)
         except LLMUnavailableError:
             result.status = "failed"
             result.error = LLM_UNAVAILABLE_ERROR
@@ -74,7 +75,7 @@ class AskService:
         except ValueError:
             return None
 
-    def _run(self, question: str, result: AskResult) -> None:
+    def _run(self, question: str, result: AskResult, answer: bool) -> None:
         today = self.today()
         context = self.retriever.search(question, self.top_k)
         result.context = context
@@ -104,10 +105,11 @@ class AskService:
 
         result.columns = list(query.columns)
         result.rows = list(query.rows)
-        prompt = build_answer_prompt(
-            question, result.columns, result.rows, self.answer_row_limit
-        )
-        result.answer = self.llm.generate_text(prompt)
+        if answer:
+            prompt = build_answer_prompt(
+                question, result.columns, result.rows, self.answer_row_limit
+            )
+            result.answer = self.llm.generate_text(prompt)
         result.status = "answered"
 
     def _repair(self, question, context, today, bad_sql, error, result) -> QueryResult | None:

@@ -46,6 +46,22 @@ def test_happy_path_answered():
     assert result.error is None
 
 
+def test_answer_false_skips_answer_phrasing():
+    service, llm, runner = make([draft(GOOD_SQL)], [ok()])
+    result = service.ask("Which cities?", answer=False)
+    assert result.status == "answered"
+    assert result.answer is None
+    assert result.rows == [("Delhi",)]
+    assert len(runner.calls) == 1
+    assert llm.text_prompts == []
+
+
+def test_answer_defaults_to_phrasing():
+    service, llm, _ = make([draft(GOOD_SQL)], [ok()])
+    assert service.ask("Which cities?").answer == "An answer."
+    assert len(llm.text_prompts) == 1
+
+
 def test_out_of_scope_refused():
     service, _, runner = make([draft(None, "not weather data")], [])
     result = service.ask("Who won the match?")

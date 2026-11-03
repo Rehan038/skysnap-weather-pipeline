@@ -125,6 +125,9 @@ def score(rows: list[EvalRow]) -> tuple[int, int, int]:
     return matches, len(rows) - unavailable, unavailable
 
 
+SCORE_NOTE = "Score measures SQL result correctness; answer phrasing is not evaluated."
+
+
 def accuracy_line(rows: list[EvalRow]) -> str:
     matches, scored, unavailable = score(rows)
     return f"Accuracy: {matches}/{scored} ({unavailable} unavailable)"
@@ -199,7 +202,7 @@ def render_report(rows: list[EvalRow], settings, today: date) -> str:
     for r in rows:
         sql = _one_line(r.generated_sql).replace("|", r"\|")
         out.append(f"| {r.id} | {r.status} | {r.verdict} | {sql} |")
-    out += ["", accuracy_line(rows), "", "## Wrong answers", ""]
+    out += ["", accuracy_line(rows), "", SCORE_NOTE, "", "## Wrong answers", ""]
     bad = [r for r in rows if r.verdict != MATCH]
     if not bad:
         out.append("None.")
@@ -247,7 +250,10 @@ def main(argv: list[str] | None = None) -> int:
     service = build_service(settings)
     selected = [q for q in questions if q["id"] in chosen]
     rows = run_eval(
-        service.ask, lambda sql: run_readonly(sql, settings), selected, time.sleep
+        lambda question: service.ask(question, answer=False),
+        lambda sql: run_readonly(sql, settings),
+        selected,
+        time.sleep,
     )
     if args.ids:
         rows, missing = merge_rows(previous, rows, all_ids)
@@ -261,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
     for r in rows:
         print(f"{r.id} | {r.status} | {r.verdict} | {_one_line(r.generated_sql)}")
     print(accuracy_line(rows))
+    print(SCORE_NOTE)
     report = render_report(rows, settings, date.today())
     report_path.write_text(report, encoding="utf-8")
     return 0

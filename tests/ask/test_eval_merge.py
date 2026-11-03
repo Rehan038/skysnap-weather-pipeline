@@ -87,3 +87,8 @@ def test_report_notes_carried_wrong_rows():
     report = render_report(prev, S(), date(2026, 11, 3))
     assert "carried over from an earlier run; see that run's SQL" in report
     assert "Accuracy: 1/2 (1 unavailable)" in report
+
+
+def test_report_states_what_the_score_measures():
+    report = render_report([], S(), date(2026, 11, 3))
+    assert "Score measures SQL result correctness; answer phrasing is not evaluated." in report
