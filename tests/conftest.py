@@ -27,13 +27,21 @@ def _exec_sql_file(conn, sql_path: str) -> None:
     conn.commit()
 
 
+def mysql_unreachable(reason: str) -> None:
+    """Fail the test in CI (CI=true); skip it everywhere else."""
+    message = f"MySQL not reachable: {reason}"
+    if os.getenv("CI") == "true":
+        pytest.fail(message)
+    pytest.skip(message)
+
+
 @pytest.fixture
 def db():
     """Provide a clean database connection for each test.
 
     Uses TEST_WAREHOUSE_DB (default: weather_test) and TEST_WAREHOUSE_PORT (default: 3307).
     Raises immediately if the target database does not end with '_test'.
-    Skips the test if MySQL is unreachable.
+    Skips the test if MySQL is unreachable, or fails it when CI=true.
     Creates the schema, clears test tables, then yields the connection.
     After the test, rolls back any uncommitted changes and closes.
     """
@@ -50,8 +58,8 @@ def db():
             port=test_port,
             database=test_db,
         )
-    except Exception:  # noqa: BLE001
-        pytest.skip("MySQL not reachable")
+    except Exception as exc:  # noqa: BLE001
+        mysql_unreachable(str(exc))
 
     _exec_sql_file(conn, "sql/init.sql")
 
