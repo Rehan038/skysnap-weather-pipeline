@@ -145,6 +145,22 @@ GROUP BY c.name, DATE(h.observed_at)
 ORDER BY day DESC, city;
 ```
 
+**Output:**
+```
+city        day         max_temp_c
+Bengaluru   2026-11-02  26.50
+Chennai     2026-11-02  26.70
+Delhi       2026-11-02  29.20
+Kolkata     2026-11-02  31.30
+Mumbai      2026-11-02  34.30
+Bengaluru   2026-11-01  29.50
+Chennai     2026-11-01  30.90
+Delhi       2026-11-01  28.40
+Kolkata     2026-11-01  30.90
+Mumbai      2026-11-01  33.20
+...
+```
+
 ### 2. Rainiest city last week
 
 ```sql
@@ -157,6 +173,12 @@ WHERE h.observed_at >= CURDATE() - INTERVAL 7 DAY
 GROUP BY c.name
 ORDER BY total_precipitation_mm DESC
 LIMIT 1;
+```
+
+**Output:**
+```
+city    total_precipitation_mm
+Delhi   81.60
 ```
 
 ### 3. Hourly average temperature profile for Bengaluru (by hour of day)
@@ -172,6 +194,35 @@ GROUP BY HOUR(h.observed_at)
 ORDER BY hour_of_day;
 ```
 
+**Output:**
+```
+hour_of_day  avg_temp_c
+0            21.59
+1            21.18
+2            20.83
+3            20.55
+4            20.34
+5            20.67
+6            20.46
+7            21.46
+8            23.11
+9            24.78
+10           26.20
+11           27.29
+12           27.79
+13           28.33
+14           28.22
+15           27.95
+16           27.07
+17           26.33
+18           24.75
+19           24.01
+20           23.37
+21           22.83
+22           22.33
+23           22.24
+```
+
 ### 4. Rejects by reason
 
 ```sql
@@ -179,6 +230,11 @@ SELECT reason, COUNT(*) AS cnt
 FROM weather_rejects
 GROUP BY reason
 ORDER BY cnt DESC;
+```
+
+**Output:**
+```
+Empty set (0 rows) — all rows passed validation checks.
 ```
 
 ---
