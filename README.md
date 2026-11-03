@@ -183,6 +183,8 @@ city    total_precipitation_mm
 Delhi   81.60
 ```
 
+> **Note:** Delhi's total comes from two heavy days (2026-10-29: 41.2 mm, 2026-10-30: 40.2 mm). Both daily sums were cross-checked against the Open-Meteo API and match exactly. Values are modelled grid data, not station readings.
+
 ### 3. Hourly average temperature profile for Bengaluru (by hour of day)
 
 ```sql
