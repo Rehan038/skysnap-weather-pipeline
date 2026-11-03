@@ -13,5 +13,8 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py311"
 
+
+[tool.coverage.run]
+omit = ["src/skysnap_ask/factory.py"]

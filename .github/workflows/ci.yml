@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  pipeline:
     runs-on: ubuntu-latest
 
     services:
@@ -57,5 +57,54 @@ jobs:
           TEST_WAREHOUSE_DB: weather_test
           WAREHOUSE_USER: weather
           WAREHOUSE_PASSWORD: weather
-        run: pytest -v
+        run: pytest -v --ignore=tests/ask
 
+  ask:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: weather
+          MYSQL_USER: weather
+          MYSQL_PASSWORD: weather
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -u weather -pweather"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install ask dependencies
+        run: pip install -r requirements-ask-dev.txt
+
+      - name: Lint with ruff
+        run: ruff check .
+
+      - name: Initialize test database
+        run: |
+          mysql -h 127.0.0.1 -u root -proot -e "CREATE DATABASE IF NOT EXISTS weather_test; GRANT ALL PRIVILEGES ON weather_test.* TO 'weather'@'%'; FLUSH PRIVILEGES;"
+
+      - name: Run ask tests with coverage
+        env:
+          WAREHOUSE_HOST: 127.0.0.1
+          TEST_WAREHOUSE_HOST: 127.0.0.1
+          TEST_WAREHOUSE_PORT: 3306
+          TEST_WAREHOUSE_DB: weather_test
+          TEST_MYSQL_ROOT_PASSWORD: root
+          WAREHOUSE_USER: weather
+          WAREHOUSE_PASSWORD: weather
+        run: pytest tests/ask -v --cov=skysnap_ask --cov-report=term-missing --cov-fail-under=85
