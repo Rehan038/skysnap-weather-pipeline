@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from airflow.sdk import dag, task
+from airflow.sdk import CronDataIntervalTimetable, dag, task
 
 from weather_etl.config import CITIES
 from weather_etl.extract import fetch_hourly
@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 @dag(
     dag_id="weather_etl",
-    schedule="30 0 * * *",
+    schedule=CronDataIntervalTimetable("30 0 * * *", timezone="UTC"),
     start_date=datetime(2026, 10, 1),
     catchup=True,
     max_active_runs=1,
@@ -74,3 +74,4 @@ def weather_etl():
 
 
 weather_etl()
+
