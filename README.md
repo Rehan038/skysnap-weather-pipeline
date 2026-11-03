@@ -245,6 +245,85 @@ Empty set (0 rows) — all rows passed validation checks.
 
 ---
 
+## Ask SkySnap
+
+Ask SkySnap lets you question the warehouse in plain English ("Which city had the most rain between 2026-10-01 and 2026-10-07?"). It is a retrieval-augmented **text-to-SQL** assistant: Gemini writes a single SQL query, MySQL computes the numbers, and Gemini phrases the answer from the rows MySQL returned. The model never does arithmetic on raw data and the SQL is always shown, so every answer can be checked.
+
+**Why text-to-SQL and not RAG over rows?** The data is numeric and relational. Embedding thousands of hourly rows would make the model guess at aggregates; asking it for SQL keeps the maths in the database. Retrieval is used for something small and useful instead: a ~20-chunk knowledge base (table docs, conventions such as "`observed_at` is IST" and example question-to-SQL pairs) is searched by embedding similarity and put in the prompt.
+
+```mermaid
+flowchart LR
+    Q["Question"] --> R["Retriever<br/>(embeddings, top-k chunks)"]
+    R --> G["Gemini<br/>writes one SELECT"]
+    G -->|"sql = null"| X["Refused<br/>(out of scope)"]
+    G --> S["SQL guard"]
+    S -->|"blocked"| F["Failed<br/>(nothing executed)"]
+    S --> M[("Read-only MySQL<br/>skysnap_reader")]
+    M -->|"error: one repair try"| G
+    M --> A["Gemini phrases answer<br/>from returned rows"]
+    A --> UI["Streamlit UI<br/>answer + SQL + table"]
+```
+
+### Safety layers
+
+1. **SQL guard** (`src/skysnap_ask/guard.py`, built on `sqlglot`): exactly one statement; only `SELECT` (or a `UNION` of selects); no `INTO`; only the tables `dim_city`, `weather_hourly`, `weather_rejects` (CTE names are fine); banned functions such as `SLEEP`, `BENCHMARK`, `LOAD_FILE`, `DATABASE`, `VERSION`; a `LIMIT` of at most 200 rows is added or enforced.
+2. **Read-only database account**: queries run as `skysnap_reader`, which has `SELECT` on `weather.*` and nothing else, so even SQL that slipped past the guard cannot change data.
+3. **Time limit**: every query runs with `MAX_EXECUTION_TIME = 5000` ms.
+
+Failures are bounded: a MySQL error triggers one repair attempt (the error is fed back to the model), then a clear failure message. Gemini rate limits (HTTP 429/503) are retried with exponential backoff, then reported as "temporarily unavailable"; the app does not crash.
+
+### Setup
+
+```bash
+# 1. Get a Gemini API key from Google AI Studio (https://aistudio.google.com/)
+# 2. In .env set (see .env.example):
+#      GEMINI_API_KEY=...            (never commit this file)
+#      GEMINI_MODEL=gemini-3.5-flash
+#      GEMINI_EMBED_MODEL=gemini-embedding-001
+#      SKYSNAP_READER_PASSWORD=...   (any strong password for the read-only account)
+docker compose up -d --build
+# 3. Open http://localhost:8501
+```
+
+The reader account is created automatically the first time the warehouse volume is initialised. On an **existing** volume, create it once with:
+
+```bash
+docker compose up -d warehouse
+docker compose exec warehouse sh /docker-entrypoint-initdb.d/02-reader-user.sh
+# Git Bash on Windows rewrites the path; prefix the command with MSYS_NO_PATHCONV=1
+```
+
+The first page load embeds the knowledge base (one Gemini embedding call) and caches it in the `ask-cache` volume.
+
+### Testing
+
+| Tier | What | Network |
+|---|---|---|
+| Unit | guard, prompts, retriever, LLM wrapper retries, service flows, config, UI (`streamlit.testing`), eval comparison, all with fakes | none |
+| MySQL integration | the reader account can `SELECT` but not write; execution limit; error wrapping | local DB only |
+| Real-API smoke and acceptance | one real text and embedding call; four manual UI scenarios (answer, destructive request, out-of-scope, database down) | Gemini, run by hand |
+| Evaluation | 10 held-out questions, see below | Gemini, run by hand |
+
+CI runs the first two tiers with no Gemini calls (`ask` job, coverage gate 85%).
+
+### Evaluation
+
+`scripts/eval_ask.py` asks 10 held-out questions (`eval/questions.yaml`, absolute dates in October 2026, none reused from the knowledge base) and compares the generated query's result set with a hand-written reference query. Cells are rounded to one decimal place and compared as sorted tuples, so column order, aliases and tiny float noise do not matter; the one out-of-scope question passes only if the app refuses. Questions that hit a Gemini rate limit are retried and, if still unavailable, excluded and counted separately. **Score measures SQL result correctness; answer phrasing is not evaluated.**
+
+- Text model: `gemini-3.5-flash`, embedding model: `gemini-embedding-001`
+- Score: **EVAL_SCORE_PLACEHOLDER** (details in [`eval/last_run.md`](eval/last_run.md))
+
+<!-- SCREENSHOT_PLACEHOLDER: docs/img/ask-answer.png (an answered question with SQL and table) -->
+<!-- SCREENSHOT_PLACEHOLDER: docs/img/ask-refused.png (a refused or blocked request) -->
+
+### Ask SkySnap limitations
+
+- Gemini free tier allows ~20 text requests/day; each question uses 1-3 calls.
+- LLM-generated SQL can still be semantically wrong; the evaluation score quantifies this.
+- On the Gemini free tier, Google may use prompts to improve its products. Only public weather data and the question text are sent.
+
+---
+
 ## Failure Handling
 
 Each task retries 3 times with exponential backoff (`retry_delay` 2 minutes, doubling per attempt). This was verified inside Airflow, not just in Python: with the API URL pointed at a dead address, all 5 per-city `extract` tasks failed with `Connection refused`, retried 3 more times (gaps of roughly 5, 13 and 27 minutes in the observed run, because Airflow adds jitter to the backoff), then ended `failed`; `validate` and `load` became `upstream_failed`. The failed run wrote nothing, and the previously loaded rows (24 per city for 2026-10-10) were unchanged. After restoring the real URL and clearing the run, it finished `success` with the same 24 rows per city.
