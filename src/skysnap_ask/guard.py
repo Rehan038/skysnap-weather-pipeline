@@ -104,6 +104,9 @@ def guard_sql(sql: str, max_rows: int = 200) -> str:
         raise UnsafeSQLError("only SELECT statements are allowed")
     if tree.find(exp.Into) is not None:
         raise UnsafeSQLError("INTO is not allowed")
+    if tree.find(exp.Hint) is not None:
+        # A /*+ ... */ hint can override the session MAX_EXECUTION_TIME set by run_readonly.
+        raise UnsafeSQLError("optimizer hints are not allowed")
     _check_functions(tree)
     _check_tables(tree)
     tree = _apply_limit(tree, max_rows)
