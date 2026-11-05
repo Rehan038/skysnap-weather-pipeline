@@ -8,7 +8,7 @@ from skysnap_ask.db import QueryError, user_message
 from skysnap_dash import charts, filters
 from skysnap_dash.config import load_dash_settings
 from skysnap_dash.data import MySQLDataSource, hit_cap
-from skysnap_dash.health import freshness, ist_today
+from skysnap_dash.health import freshness, ist_today, pipeline_has_run
 from skysnap_dash.queries import AGG_CAP, CITIES, HOURLY_CAP
 
 _STATUS_COLOUR = {"green": "green", "amber": "orange", "red": "red"}
@@ -27,7 +27,12 @@ def _get_source():
 
 source = _get_source()
 source_key = f"{type(source).__name__}:{id(source)}"
-today = st.session_state.get("dash_today") or ist_today()
+if "dash_today" in st.session_state:  # test seam: fixed date, run assumed done unless set
+    today = st.session_state["dash_today"]
+    run_done = st.session_state.get("dash_run_done", True)
+else:
+    today = ist_today()
+    run_done = pipeline_has_run()
 
 
 def fetch(method: str, *args):
@@ -61,7 +66,7 @@ except QueryError as exc:
 
 selected_cities = st.sidebar.multiselect("Cities", list(CITIES), default=list(CITIES))
 
-fresh = freshness(health.latest_day, today)
+fresh = freshness(health.latest_day, today, run_done)
 cols = st.columns(4)
 cols[0].metric("Latest date loaded", str(health.latest_day) if health.latest_day else "n/a")
 cols[1].metric("Data age (days)", fresh.age_days if fresh.age_days is not None else "n/a")

@@ -21,11 +21,12 @@ def _clear_cache():
     st.cache_data.clear()
 
 
-def run(source=None, today=TODAY):
+def run(source=None, today=TODAY, run_done=True):
     source = source or FakeDataSource()
     at = AppTest.from_file(PAGE, default_timeout=30)
     at.session_state["dash_source"] = source
     at.session_state["dash_today"] = today
+    at.session_state["dash_run_done"] = run_done
     at.run()
     return at, source
 
@@ -62,6 +63,17 @@ def test_dashboard_renders_tiles_and_charts():
 def test_fresh_data_shows_green_label():
     at, _ = run(today=date(2026, 11, 1))
     assert any(":green[Up to date]" in t for t in texts(at))
+
+
+def test_two_day_old_data_after_the_morning_run_is_amber():
+    at, _ = run(today=date(2026, 11, 2))  # latest 2026-10-31 -> age 2, today's run is done
+    assert any(":orange[Slightly behind]" in t or ":yellow[Slightly behind]" in t for t in texts(at))
+
+
+def test_two_day_old_data_before_the_morning_run_is_green():
+    at, _ = run(today=date(2026, 11, 2), run_done=False)  # today's load has not happened yet
+    assert any(":green[Up to date]" in t for t in texts(at))
+    assert any(m.value == "2" for m in at.metric)  # the tile still shows the plain age
 
 
 def test_stale_data_shows_red_label():

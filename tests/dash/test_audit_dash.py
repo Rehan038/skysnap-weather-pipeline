@@ -175,7 +175,7 @@ def test_page_agg_frame_just_over_agg_cap_does_not_trip_hourly_warning():
 
 @pytest.mark.parametrize(
     ("age", "status"),
-    [(0, "green"), (1, "green"), (2, "green"), (3, "amber"), (4, "amber"), (5, "red"), (6, "red")],
+    [(0, "green"), (1, "green"), (2, "amber"), (3, "amber"), (4, "red"), (5, "red")],
 )
 def test_freshness_boundaries(age, status):
     latest = date(2026, 11, 2)
@@ -198,12 +198,9 @@ def test_pipeline_run_morning_is_green():
     successful run latest_day is yesterday: age 1, green."""
     run_time = datetime(2026, 11, 2, 0, 45, tzinfo=UTC)
     assert freshness(date(2026, 11, 1), ist_today(run_time)).status == "green"
-    # one missed run still looks like "waiting for the next run" (green); two missed is
-    # amber; four or more missed is red
-    assert freshness(date(2026, 10, 31), ist_today(run_time)).status == "green"
-    assert freshness(date(2026, 10, 30), ist_today(run_time)).status == "amber"
-    assert freshness(date(2026, 10, 29), ist_today(run_time)).status == "amber"
-    assert freshness(date(2026, 10, 28), ist_today(run_time)).status == "red"
+    # a run missed for two days is amber, for four is red
+    assert freshness(date(2026, 10, 31), ist_today(run_time)).status == "amber"
+    assert freshness(date(2026, 10, 29), ist_today(run_time)).status == "red"
 
 
 # --------------------------------------------------------------------------------------

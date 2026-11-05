@@ -17,7 +17,7 @@ from streamlit.testing.v1 import AppTest
 from skysnap_ask import db
 from skysnap_ask.guard import UnsafeSQLError, guard_sql
 from skysnap_ask.service import AskResult
-from skysnap_dash.health import freshness, ist_today
+from skysnap_dash.health import freshness, ist_today, pipeline_has_run
 
 from .fakes import FakeService
 
@@ -79,7 +79,7 @@ def test_pipeline_on_schedule_is_green_in_the_ist_early_morning():
     on schedule, so the tile must not warn.
     """
     now = datetime(2026, 11, 5, 3, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
-    assert freshness(date(2026, 11, 3), ist_today(now)).status == "green"
+    assert freshness(date(2026, 11, 3), ist_today(now), run_done=pipeline_has_run(now)).status == "green"
 
 
 def test_reader_connection_sets_a_read_timeout(monkeypatch):

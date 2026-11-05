@@ -3,7 +3,13 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from skysnap_dash.health import EXPECTED_ROWS_PER_DAY, Freshness, freshness, ist_today
+from skysnap_dash.health import (
+    EXPECTED_ROWS_PER_DAY,
+    Freshness,
+    freshness,
+    ist_today,
+    pipeline_has_run,
+)
 
 LATEST = date(2026, 11, 2)
 
@@ -13,10 +19,9 @@ LATEST = date(2026, 11, 2)
     [
         (0, "green", "Up to date"),
         (1, "green", "Up to date"),
-        (2, "green", "Up to date"),  # the run that loads yesterday has not happened yet
+        (2, "amber", "Slightly behind"),
         (3, "amber", "Slightly behind"),
-        (4, "amber", "Slightly behind"),
-        (5, "red", "Stale"),
+        (4, "red", "Stale"),
         (10, "red", "Stale"),
     ],
 )
@@ -52,18 +57,52 @@ def test_expected_rows_is_120():
 IST = ZoneInfo("Asia/Kolkata")
 
 
+def at(h, m=0, day=5):
+    return datetime(2026, 11, day, h, m, tzinfo=IST)
+
+
+@pytest.mark.parametrize(
+    ("moment", "expected"),
+    [
+        (at(0, 0), False),
+        (at(5, 59), False),
+        (at(6, 0), True),  # the DAG fires at 00:30 UTC = 06:00 IST
+        (at(6, 1), True),
+        (at(23, 59), True),
+    ],
+)
+def test_pipeline_has_run_switches_at_0600_ist(moment, expected):
+    assert pipeline_has_run(moment) is expected
+
+
+def test_pipeline_has_run_converts_other_timezones_to_ist():
+    assert pipeline_has_run(datetime(2026, 11, 5, 0, 29, tzinfo=UTC)) is False  # 05:59 IST
+    assert pipeline_has_run(datetime(2026, 11, 5, 0, 30, tzinfo=UTC)) is True  # 06:00 IST
+
+
 @pytest.mark.parametrize(
     ("moment", "latest", "status"),
     [
-        # The DAG fires 00:30 UTC = 06:00 IST and loads the previous day.
-        (datetime(2026, 11, 5, 3, 0, tzinfo=IST), date(2026, 11, 3), "green"),  # before the run
-        (datetime(2026, 11, 5, 5, 59, tzinfo=IST), date(2026, 11, 3), "green"),
-        (datetime(2026, 11, 5, 6, 30, tzinfo=IST), date(2026, 11, 4), "green"),  # after the run
-        (datetime(2026, 11, 5, 23, 59, tzinfo=IST), date(2026, 11, 4), "green"),
-        (datetime(2026, 11, 5, 3, 0, tzinfo=IST), date(2026, 11, 2), "amber"),  # a run was missed
-        (datetime(2026, 11, 5, 12, 0, tzinfo=IST), date(2026, 11, 2), "amber"),
-        (datetime(2026, 11, 5, 12, 0, tzinfo=IST), date(2026, 10, 31), "red"),
+        # After the 06:00 IST run: the approved bands apply to the plain age.
+        (at(7), date(2026, 11, 4), "green"),  # age 1: loaded this morning
+        (at(23, 59), date(2026, 11, 4), "green"),
+        (at(7), date(2026, 11, 3), "amber"),  # age 2: this morning's run did not load
+        (at(7), date(2026, 11, 2), "amber"),  # age 3
+        (at(7), date(2026, 11, 1), "red"),  # age 4
+        # Before the run: today's load has not happened yet, so measure from yesterday.
+        (at(3), date(2026, 11, 3), "green"),  # on schedule (loaded yesterday morning)
+        (at(5, 59), date(2026, 11, 3), "green"),
+        (at(3), date(2026, 11, 2), "amber"),  # one run missed
+        (at(3), date(2026, 11, 1), "amber"),
+        (at(3), date(2026, 10, 31), "red"),
     ],
 )
 def test_on_schedule_data_is_green_all_day(moment, latest, status):
-    assert freshness(latest, ist_today(moment)).status == status
+    result = freshness(latest, ist_today(moment), run_done=pipeline_has_run(moment))
+    assert result.status == status
+
+
+def test_the_displayed_age_is_always_the_plain_age():
+    """The grace only affects the colour; the tile still shows today minus the latest day."""
+    result = freshness(date(2026, 11, 3), date(2026, 11, 5), run_done=False)
+    assert (result.status, result.age_days) == ("green", 2)

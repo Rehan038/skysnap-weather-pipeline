@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
 EXPECTED_ROWS_PER_DAY = 120
 _IST = ZoneInfo("Asia/Kolkata")
+# The DAG fires at 00:30 UTC = 06:00 IST and loads the previous day.
+PIPELINE_RUN_IST = time(6, 0)
 
 
 @dataclass(frozen=True)
@@ -23,17 +25,27 @@ def ist_today(now: datetime | None = None) -> date:
     return moment.astimezone(_IST).date()
 
 
-def freshness(latest: date | None, today: date) -> Freshness:
+def pipeline_has_run(now: datetime | None = None) -> bool:
+    """True once today's scheduled run (06:00 IST) is due, so yesterday's data should be loaded."""
+    moment = now if now is not None else datetime.now(_IST)
+    return moment.astimezone(_IST).time() >= PIPELINE_RUN_IST
+
+
+def freshness(latest: date | None, today: date, run_done: bool = True) -> Freshness:
+    """Colour the data by age: 0-1 days green, 2-3 amber, more than 3 red; no data is red.
+
+    The newest day is normally yesterday's, loaded at 06:00 IST. Until that run has happened
+    (``run_done`` False) today's load is not due yet, so age is measured from yesterday and
+    on-schedule data stays green overnight. ``age_days`` is always the plain age (today minus
+    the latest day) that the dashboard displays.
+    """
     if latest is None:
         return Freshness("red", None, "No data")
     age = max((today - latest).days, 0)
-    # The DAG fires at 00:30 UTC (06:00 IST) and loads the previous day, so the newest day is
-    # normally yesterday, and the day before until that morning's run. Judge freshness by how
-    # far behind that schedule the data is (age measured against yesterday), so on-schedule
-    # data is green all day. `age_days` stays the plain age shown on the dashboard.
-    behind = max(age - 1, 0)
-    if behind <= 1:
+    expected_today = today if run_done else today - timedelta(days=1)
+    lag = max((expected_today - latest).days, 0)
+    if lag <= 1:
         return Freshness("green", age, "Up to date")
-    if behind <= 3:
+    if lag <= 3:
         return Freshness("amber", age, "Slightly behind")
     return Freshness("red", age, "Stale")
