@@ -141,6 +141,21 @@ class MergeError(Exception):
     pass
 
 
+class PreflightError(RuntimeError):
+    pass
+
+
+def preflight_db(run_query: Callable[[str], object]) -> None:
+    """Fail before any Gemini call if the warehouse cannot be queried."""
+    try:
+        run_query("SELECT 1")
+    except Exception as exc:
+        raise PreflightError(
+            f"Database preflight failed: {exc}. Hint: start Docker Desktop and the "
+            "warehouse, then retry; no Gemini calls were made."
+        ) from exc
+
+
 _ROW_RE = re.compile(r"^\| (q\w+) \| (\S+) \| (\S+) \| (.*) \|$")
 CARRIED_NOTE = "carried over from an earlier run; see that run's SQL"
 
@@ -236,6 +251,11 @@ def main(argv: list[str] | None = None) -> int:
     from skysnap_ask.factory import build_service
 
     settings = load_settings()
+    try:
+        preflight_db(lambda sql: run_readonly(sql, settings))
+    except PreflightError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     report_path = ROOT / "eval" / "last_run.md"
     previous: list[EvalRow] = []
     if args.ids:
