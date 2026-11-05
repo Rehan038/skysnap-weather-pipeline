@@ -45,7 +45,9 @@ cd skysnap-weather-pipeline
 
 # 2. Create the environment file
 cp .env.example .env
-# Edit .env and set MYSQL_ROOT_PASSWORD
+# Edit .env and fill in every empty password / secret: MYSQL_ROOT_PASSWORD, MYSQL_PASSWORD,
+# POSTGRES_PASSWORD, SKYSNAP_READER_PASSWORD, AIRFLOW__API_AUTH__JWT_SECRET.
+# There are no built-in defaults: docker compose refuses to start while one is missing.
 
 # 3. Build and start the full stack
 docker compose up -d --build
@@ -57,6 +59,12 @@ open http://localhost:8080
 # 5. Unpause the DAG in the UI — catchup runs will start from 2026-10-01
 ```
 
+> **Network exposure:** every published port (Airflow `8080`, Streamlit `8501`, MySQL `3307`) is bound to `127.0.0.1`, so the stack is reachable only from the machine running it. Airflow has no login and the Streamlit app can spend Gemini quota, so do not publish them on `0.0.0.0` or a shared network without adding authentication.
+>
+> **Database accounts:** `weather` (the pipeline) has only `SELECT, INSERT, UPDATE, DELETE` on the `weather` schema (`sql/03-pipeline-grants.sh`; it keeps `ALL` on `weather_test` for the test-suite). `skysnap_reader` is read-only. To apply the narrowed grants to an existing warehouse volume: `docker compose exec warehouse sh /docker-entrypoint-initdb.d/03-pipeline-grants.sh`.
+>
+> **Existing volumes:** an existing MySQL/Postgres volume keeps the passwords it was created with, so set `MYSQL_PASSWORD` and `POSTGRES_PASSWORD` in `.env` to those old values (or recreate the volumes, which deletes the data).
+>
 > **Note:** `AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"` is set for local development only. For production deployments, configure proper authentication. See [Airflow security docs](https://airflow.apache.org/docs/apache-airflow/stable/security/index.html).
 
 ---
@@ -293,7 +301,7 @@ Dashboard limitations: values are modelled grid data, not station readings; the 
 - **Gridded model data, not station readings:** Temperatures and precipitation are interpolated from weather models, not measured at a physical station — they may differ from local observations.
 - **`SIMPLE_AUTH_MANAGER_ALL_ADMINS`:** This setting grants all users admin access and is suitable for local development only. Do not use in production.
 
-- **Airflow JWT secret:** The default `AIRFLOW__API_AUTH__JWT_SECRET` in `docker-compose.yml` is a local-development placeholder. Override it (via `.env`) in any real deployment.
+- **Airflow JWT secret:** `AIRFLOW__API_AUTH__JWT_SECRET` is required in `.env` (no default). Use a long random value.
 
 ---
 

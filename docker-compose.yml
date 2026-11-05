@@ -2,9 +2,12 @@
 # Airflow 3.3.2 (LocalExecutor) + MySQL 8 warehouse
 #
 # Quick start:
-#   cp .env.example .env   # fill in MYSQL_ROOT_PASSWORD
+#   cp .env.example .env   # fill in every variable marked required (no built-in defaults)
 #   docker compose up -d --build
 #   open http://localhost:8080
+#
+# Every published port is bound to 127.0.0.1: Airflow has no login (ALL_ADMINS) and the
+# Streamlit app can spend Gemini quota, so neither may be reachable from the network.
 
 x-airflow-common: &airflow-common
   build: .
@@ -13,15 +16,15 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres/airflow
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
-    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-airflow_jwt_secret}
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:?set AIRFLOW__API_AUTH__JWT_SECRET in .env}
     AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER:-airflow}
     PYTHONPATH: /opt/airflow/src
     WAREHOUSE_HOST: warehouse
     WAREHOUSE_PORT: "3306"
     WAREHOUSE_USER: weather
-    WAREHOUSE_PASSWORD: weather
+    WAREHOUSE_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
     WAREHOUSE_DB: weather
   volumes:
     - ./dags:/opt/airflow/dags
@@ -38,7 +41,7 @@ services:
     image: postgres:16
     environment:
       POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: airflow
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
@@ -62,7 +65,7 @@ services:
     <<: *airflow-common
     command: airflow api-server
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s
@@ -101,17 +104,18 @@ services:
     environment:
       MYSQL_DATABASE: weather
       MYSQL_USER: weather
-      MYSQL_PASSWORD: weather
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
-      SKYSNAP_READER_PASSWORD: ${SKYSNAP_READER_PASSWORD}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      SKYSNAP_READER_PASSWORD: ${SKYSNAP_READER_PASSWORD:?set SKYSNAP_READER_PASSWORD in .env}
     ports:
-      - "${WAREHOUSE_HOST_PORT:-3307}:3306"
+      - "127.0.0.1:${WAREHOUSE_HOST_PORT:-3307}:3306"
     volumes:
       - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - ./sql/02-reader-user.sh:/docker-entrypoint-initdb.d/02-reader-user.sh:ro
+      - ./sql/03-pipeline-grants.sh:/docker-entrypoint-initdb.d/03-pipeline-grants.sh:ro
       - warehouse-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "weather", "-pweather"]
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysqladmin ping -h localhost -u weather"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -127,12 +131,12 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GEMINI_MODEL: ${GEMINI_MODEL}
       GEMINI_EMBED_MODEL: ${GEMINI_EMBED_MODEL}
-      SKYSNAP_READER_PASSWORD: ${SKYSNAP_READER_PASSWORD}
+      SKYSNAP_READER_PASSWORD: ${SKYSNAP_READER_PASSWORD:?set SKYSNAP_READER_PASSWORD in .env}
       READER_HOST: warehouse
       READER_PORT: "3306"
       INDEX_CACHE_PATH: /cache/ask_index.json
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     volumes:
       - ask-cache:/cache
     depends_on:
