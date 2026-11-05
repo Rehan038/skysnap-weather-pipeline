@@ -92,6 +92,10 @@ def run_readonly(sql: str, settings: Settings, params: tuple | None = None) -> Q
             password=settings.reader_password,
             database=settings.reader_db,
             connect_timeout=5,
+            # The server-side MAX_EXECUTION_TIME fires first; these only stop a hung socket
+            # from blocking a Streamlit thread forever.
+            read_timeout=int(settings.query_timeout_ms) / 1000 + 10,
+            write_timeout=10,
         )
         try:
             with conn.cursor() as cur:

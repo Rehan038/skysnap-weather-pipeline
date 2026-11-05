@@ -32,7 +32,11 @@ def _env(monkeypatch):
     monkeypatch.setenv("GEMINI_EMBED_MODEL", "e")
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING R-03")
+# ACCEPTED RESIDUAL RISK (R-03): the guard resolves CTE names globally, so a name defined
+# in a subquery can whitelist an outer table of the same name. The reader is now granted
+# SELECT on only the three allowed tables (sql/02-reader-user.sh), so such a name can
+# never reach anything else; this test documents the remaining guard imprecision.
+@pytest.mark.xfail(strict=True, reason="ACCEPTED RISK R-03: guard CTE scope; DB grants cap it")
 def test_cte_name_defined_in_a_subquery_does_not_whitelist_an_outer_table():
     """`x` in the outer FROM is not a CTE in scope: it is a real table name, not allowed."""
     with pytest.raises(UnsafeSQLError):
@@ -79,7 +83,6 @@ def test_pipeline_on_schedule_is_green_in_the_ist_early_morning():
     assert freshness(date(2026, 11, 3), ist_today(now)).status == "green"
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING R-12")
 def test_reader_connection_sets_a_read_timeout(monkeypatch):
     seen = {}
 
@@ -101,7 +104,6 @@ def test_reader_connection_sets_a_read_timeout(monkeypatch):
     assert seen.get("read_timeout")
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING R-13")
 def test_reader_init_script_fails_loudly_without_a_password():
     script = (ROOT / "sql" / "02-reader-user.sh").read_text(encoding="utf-8")
     empty_branch = script.split('if [ -z "${SKYSNAP_READER_PASSWORD:-}" ]; then', 1)[1]

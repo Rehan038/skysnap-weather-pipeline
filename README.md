@@ -61,7 +61,7 @@ open http://localhost:8080
 
 > **Network exposure:** every published port (Airflow `8080`, Streamlit `8501`, MySQL `3307`) is bound to `127.0.0.1`, so the stack is reachable only from the machine running it. Airflow has no login and the Streamlit app can spend Gemini quota, so do not publish them on `0.0.0.0` or a shared network without adding authentication.
 >
-> **Database accounts:** `weather` (the pipeline) has only `SELECT, INSERT, UPDATE, DELETE` on the `weather` schema (`sql/03-pipeline-grants.sh`; it keeps `ALL` on `weather_test` for the test-suite). `skysnap_reader` is read-only. To apply the narrowed grants to an existing warehouse volume: `docker compose exec warehouse sh /docker-entrypoint-initdb.d/03-pipeline-grants.sh`.
+> **Database accounts:** `weather` (the pipeline) has only `SELECT, INSERT, UPDATE, DELETE` on the `weather` schema (`sql/03-pipeline-grants.sh`; it keeps `ALL` on `weather_test` for the test-suite). `skysnap_reader` (used by Ask SkySnap and the Dashboard) has `SELECT` on only `dim_city`, `weather_hourly` and `weather_rejects`, and at most 10 concurrent connections (`sql/02-reader-user.sh`, which also re-applies the password, so it can be rotated). To apply either script to an existing warehouse volume: `docker compose exec warehouse sh /docker-entrypoint-initdb.d/02-reader-user.sh` and `docker compose exec warehouse sh /docker-entrypoint-initdb.d/03-pipeline-grants.sh`.
 >
 > **Existing volumes:** an existing MySQL/Postgres volume keeps the passwords it was created with, so set `MYSQL_PASSWORD` and `POSTGRES_PASSWORD` in `.env` to those old values (or recreate the volumes, which deletes the data).
 >
