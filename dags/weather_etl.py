@@ -7,10 +7,10 @@ from datetime import datetime, timedelta
 
 from airflow.sdk import CronDataIntervalTimetable, dag, task
 
-from weather_etl.config import CITIES
+from weather_etl.config import CITIES, HOURS_PER_DAY
 from weather_etl.extract import fetch_hourly
 from weather_etl.load import get_connection, insert_rejects, upsert_weather
-from weather_etl.validate import check_reject_rate, split_rows
+from weather_etl.validate import check_complete, check_reject_rate, split_rows
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ def weather_etl():
         """Flatten extract outputs, validate rows, check reject rate."""
         all_rows = [row for batch in batches for row in batch]
         log.info("Validating %d total rows", len(all_rows))
+        check_complete(all_rows, CITIES, HOURS_PER_DAY)  # every city, 24 hours, before loading
         good, rejects = split_rows(all_rows)
         check_reject_rate(good, rejects)
         log.info("Good: %d  Rejects: %d", len(good), len(rejects))

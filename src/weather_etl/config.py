@@ -30,3 +30,6 @@ HUMIDITY_MAX = 100.0
 
 REJECT_THRESHOLD = 0.10
 
+# One calendar day of hourly data per city; anything else is a broken payload.
+HOURS_PER_DAY = 24
+

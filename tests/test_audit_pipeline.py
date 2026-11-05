@@ -16,9 +16,14 @@ from hypothesis import strategies as st
 
 from weather_etl import config
 from weather_etl.config import API_URL, CITIES
-from weather_etl.extract import fetch_hourly
+from weather_etl.extract import PayloadError, fetch_hourly
 from weather_etl.load import insert_rejects, upsert_weather
-from weather_etl.validate import DataQualityError, check_reject_rate, split_rows
+from weather_etl.validate import (
+    DataQualityError,
+    check_complete,
+    check_reject_rate,
+    split_rows,
+)
 
 DAG_FILE = Path(__file__).resolve().parents[1] / "dags" / "weather_etl.py"
 
@@ -115,7 +120,7 @@ def test_dag_schedule_is_daily_0030_utc(dag_module):
 )
 @responses_lib.activate
 def test_extract_task_fetches_previous_day(dag_module, fire, expected_day):
-    responses_lib.add(responses_lib.GET, API_URL, json={"hourly": {"time": []}}, status=200)
+    responses_lib.add(responses_lib.GET, API_URL, json=payload(day=expected_day), status=200)
     seen, _ = _capture_tasks()
     seen["extract"].function(CITIES[0], data_interval_start=_data_interval_start(fire))
     qs = responses_lib.calls[0].request.params
@@ -307,8 +312,8 @@ BENGALURU = CITIES[0]
 TIMES = [f"{DAY.isoformat()}T{h:02d}:00" for h in range(24)]
 
 
-def payload(n_time=24, n_temp=24, times=None, **extra):
-    times = times if times is not None else TIMES[:n_time]
+def payload(n_time=24, n_temp=24, times=None, day=DAY, **extra):
+    times = times if times is not None else [f"{day.isoformat()}T{h:02d}:00" for h in range(n_time)]
     hourly = {
         "time": times,
         "temperature_2m": [21.0 + i for i in range(n_temp)],
@@ -333,70 +338,182 @@ def test_extract_happy_path_is_aligned():
     assert [r["temperature_c"] for r in rows] == [21.0 + i for i in range(24)]
 
 
-def test_extract_short_temperature_array_never_misaligns():
-    """time=24, temperature=23: the missing hour must be None (-> reject), not shifted."""
-    rows = fetch(payload(n_time=24, n_temp=23))
-    assert [r["temperature_c"] for r in rows[:23]] == [21.0 + i for i in range(23)]
-    assert rows[23]["temperature_c"] is None
-    _good, rejects = split_rows(rows)
-    assert len(rejects) == 1 and rejects[0]["reason"] == "null temperature_c"
+def test_extract_short_temperature_array_is_an_error():
+    """time=24, temperature=23: misaligned payload. Fail loudly; never load a partial day."""
+    with pytest.raises(PayloadError, match="temperature_2m"):
+        fetch(payload(n_time=24, n_temp=23))
 
 
-def test_extract_missing_variable_makes_every_row_rejectable():
+def test_extract_missing_variable_is_an_error():
     body = payload()
     del body["hourly"]["wind_speed_10m"]
-    good, rejects = split_rows(fetch(body))
-    assert good == []
-    with pytest.raises(DataQualityError):
-        check_reject_rate(good, rejects)
+    with pytest.raises(PayloadError, match="wind_speed_10m"):
+        fetch(body)
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-02")
 def test_extract_long_temperature_array_is_an_error():
     """time=24, temperature=25: payload is internally inconsistent; do not silently trim."""
-    with pytest.raises((RuntimeError, ValueError)):
+    with pytest.raises(PayloadError):
         fetch(payload(n_time=24, n_temp=25))
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-02")
 def test_extract_fewer_than_24_hours_is_an_error():
-    with pytest.raises((RuntimeError, ValueError)):
+    with pytest.raises(PayloadError):
         fetch(payload(n_time=23, n_temp=23))
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-02")
 def test_extract_more_than_24_hours_is_an_error():
     times = [*TIMES, f"{DAY.isoformat()}T24:00"]
-    with pytest.raises((RuntimeError, ValueError)):
+    with pytest.raises(PayloadError):
         fetch(payload(times=times, n_temp=25))
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-02")
 def test_extract_duplicate_timestamps_is_an_error():
     times = [*TIMES[:23], TIMES[0]]
-    with pytest.raises((RuntimeError, ValueError)):
+    with pytest.raises(PayloadError):
         fetch(payload(times=times))
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-02")
 def test_extract_empty_hourly_is_an_error():
     """A city with no data at all must not silently vanish from the day's load."""
-    with pytest.raises((RuntimeError, ValueError)):
+    with pytest.raises(PayloadError):
         fetch({"hourly": {"time": []}})
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-02")
 def test_extract_missing_hourly_key_is_an_error():
-    with pytest.raises((RuntimeError, ValueError)):
+    with pytest.raises(PayloadError):
         fetch({})
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-02")
 def test_extract_timestamps_for_wrong_day_is_an_error():
     other = date(2026, 9, 30)
     times = [f"{other.isoformat()}T{h:02d}:00" for h in range(24)]
-    with pytest.raises((RuntimeError, ValueError)):
+    with pytest.raises(PayloadError):
         fetch(payload(times=times))
+
+
+# --- strict payload validation (finding A-02, incl. R-11 type/format cases) -------------
+
+
+def _with(**changes):
+    body = payload()
+    body["hourly"].update(changes)
+    return body
+
+
+@pytest.mark.parametrize(
+    ("label", "body"),
+    [
+        ("string temperature", _with(temperature_2m=["21.5"] * 24)),
+        ("bool humidity", _with(relative_humidity_2m=[True] * 24)),
+        ("object precipitation", _with(precipitation=[{"v": 1}] * 24)),
+        ("list wind", _with(wind_speed_10m=[[1]] * 24)),
+        ("string weather_code", _with(weather_code=["x"] * 24)),
+        ("float weather_code", _with(weather_code=[1.5] * 24)),
+        ("hourly not a dict", {"hourly": []}),
+        ("time not a list", _with(time="2026-10-01T00:00")),
+        ("variable not a list", _with(temperature_2m="21")),
+        ("null timestamp", _with(time=[None, *TIMES[1:]])),
+        ("numeric timestamp", _with(time=[0, *TIMES[1:]])),
+        ("malformed timestamp", _with(time=["not-a-time", *TIMES[1:]])),
+        ("date-only timestamp", _with(time=[DAY.isoformat(), *TIMES[1:]])),
+        ("non-hourly timestamp", _with(time=[f"{DAY.isoformat()}T00:30", *TIMES[1:]])),
+        ("body not a dict", [1, 2, 3]),
+    ],
+)
+def test_extract_rejects_malformed_payload(label, body):
+    with pytest.raises(PayloadError):
+        fetch(body)
+
+
+def test_extract_allows_null_values_which_validation_rejects():
+    """A null reading is legitimate upstream data; it becomes a reject, not an extract error."""
+    body = _with(temperature_2m=[None, *[20.0] * 23])
+    rows = fetch(body)
+    assert len(rows) == 24 and rows[0]["temperature_c"] is None
+    good, rejects = split_rows(rows)
+    assert len(good) == 23 and rejects[0]["reason"] == "null temperature_c"
+
+
+def test_extract_accepts_integer_valued_numbers():
+    rows = fetch(_with(temperature_2m=[20] * 24, wind_speed_10m=[3] * 24))
+    assert rows[0]["temperature_c"] == 20 and len(rows) == 24
+
+
+def test_extract_payload_error_is_a_runtime_error():
+    """Airflow retries RuntimeError like the API-error case; keep the type compatible."""
+    assert issubclass(PayloadError, RuntimeError)
+
+
+# --- validate: malformed values that bypass extract become rejects, not a crash ---------
+
+
+def _row(**changes):
+    row = {
+        "city": "Delhi",
+        "observed_at": "2026-10-01T00:00",
+        "temperature_c": 20.0,
+        "humidity_pct": 50.0,
+        "precipitation_mm": 0.0,
+        "wind_kmh": 5.0,
+        "weather_code": 1,
+    }
+    row.update(changes)
+    return row
+
+
+@pytest.mark.parametrize("bad", [None, "", "yesterday", "2026-13-45T00:00", 5, ["x"]])
+def test_validate_rejects_bad_observed_at(bad):
+    good, rejects = split_rows([_row(observed_at=bad)])
+    assert good == [] and rejects[0]["reason"] == "invalid observed_at"
+
+
+@pytest.mark.parametrize("field", ["temperature_c", "humidity_pct", "precipitation_mm", "wind_kmh"])
+@pytest.mark.parametrize("bad", ["21.5", True, [1], {"a": 1}])
+def test_validate_rejects_non_numeric_values_instead_of_crashing(field, bad):
+    good, rejects = split_rows([_row(**{field: bad})])
+    assert good == [] and rejects[0]["reason"] == f"non-numeric {field}"
+
+
+def test_validate_accepts_a_normal_row():
+    good, rejects = split_rows([_row()])
+    assert len(good) == 1 and rejects == []
+
+
+# --- completeness: every city, 24 hours, before anything is loaded ----------------------
+
+
+def _full_day():
+    return [_row(city=c["name"], observed_at=t) for c in CITIES for t in TIMES]
+
+
+def test_check_complete_accepts_a_full_day():
+    check_complete(_full_day(), CITIES, expected_per_city=24)
+
+
+def test_check_complete_names_a_missing_city():
+    rows = [r for r in _full_day() if r["city"] != CITIES[2]["name"]]
+    with pytest.raises(DataQualityError, match=CITIES[2]["name"]):
+        check_complete(rows, CITIES, expected_per_city=24)
+
+
+def test_check_complete_rejects_a_short_city():
+    rows = _full_day()[:-1]
+    with pytest.raises(DataQualityError, match="23"):
+        check_complete(rows, CITIES, expected_per_city=24)
+
+
+def test_check_complete_rejects_an_unexpected_city():
+    rows = [*_full_day(), _row(city="Atlantis")]
+    with pytest.raises(DataQualityError, match="Atlantis"):
+        check_complete(rows, CITIES, expected_per_city=24)
+
+
+def test_dag_validate_task_requires_every_city(dag_module):
+    seen, _ = _capture_tasks()
+    batches = [[_row(city=c["name"], observed_at=t) for t in TIMES] for c in CITIES[:-1]]
+    with pytest.raises(DataQualityError, match=CITIES[-1]["name"]):
+        seen["validate"].function(batches)
 
 
 # --------------------------------------------------------------------------------------
