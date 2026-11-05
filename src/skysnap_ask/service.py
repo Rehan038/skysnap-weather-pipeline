@@ -18,7 +18,7 @@ from .db import (
     scrub_error,
     user_message,
 )
-from .guard import UnsafeSQLError, guard_sql
+from .guard import DisallowedFunctionError, UnsafeSQLError, guard_sql
 from .knowledge import Chunk
 from .llm import LLMUnavailableError
 from .prompts import (
@@ -124,8 +124,17 @@ class AskService:
             result.answer = (draft.reason or "").strip() or DEFAULT_REFUSAL
             return
 
+        repaired = False  # a question gets at most one repair, whatever triggered it
         try:
             sql = guard_sql(draft.sql, self.max_rows)
+        except DisallowedFunctionError as exc:
+            if exc.hostile:
+                result.error = f"Blocked: {exc}"
+                return
+            sql = self._repair_blocked_function(question, context, today, draft.sql, exc, result)
+            if sql is None:
+                return
+            repaired = True
         except UnsafeSQLError as exc:
             result.error = f"Blocked: {exc}"
             return
@@ -136,6 +145,9 @@ class AskService:
         except DatabaseUnavailableError:
             raise
         except QueryError as first:
+            if repaired:
+                result.error = user_message(first)
+                return
             query = self._repair(question, context, today, sql, first, result)
             if query is None:
                 return
@@ -154,6 +166,22 @@ class AskService:
                 result.error = LLM_EMPTY_ANSWER_ERROR
                 return
         result.status = "answered"
+
+    def _repair_blocked_function(self, question, context, today, bad_sql, exc, result):
+        """One repair for a draft that used a function outside the allow-list.
+
+        Returns the guarded SQL of the rewrite, or None (with ``result.error`` set).
+        """
+        error = f"{exc}. Rewrite the query using only the allowed functions listed in the rules."
+        draft = self._draft(build_repair_prompt(question, context, today, bad_sql, error))
+        if draft is None or draft.sql is None:
+            result.error = f"Blocked: {exc}"
+            return None
+        try:
+            return guard_sql(draft.sql, self.max_rows)
+        except UnsafeSQLError as second:
+            result.error = f"Blocked: {second}"
+            return None
 
     def _repair(self, question, context, today, bad_sql, first, result) -> QueryResult | None:
         result.error = user_message(first)

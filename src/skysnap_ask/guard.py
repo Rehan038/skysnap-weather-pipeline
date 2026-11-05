@@ -12,30 +12,89 @@ ALLOWED_TABLES: frozenset[str] = frozenset({"dim_city", "weather_hourly", "weath
 ALLOWED_SCHEMA = "weather"
 MAX_SQL_CHARS = 10_000  # longer statements are refused before parsing
 
-# Function allow-list, by sqlglot node class (MySQL names that sqlglot maps to a dedicated
-# node, e.g. DATE() -> TsOrDsToDate, IFNULL() -> Coalesce, CURDATE() -> CurrentDate).
-# Anything not listed here is refused: a deny-list is open-ended (SLEEP, GET_LOCK, ...).
+# Allowed SQL functions: the single source of truth. The guard enforces it and the SQL prompt
+# is generated from it (prompts._SQL_RULES), so the model is told exactly what will pass.
+#
+# Each SQL name maps to the sqlglot node class(es) the MySQL dialect parses it into (for
+# example DATE() -> TsOrDsToDate, IFNULL() -> Coalesce); "Anonymous:NAME" marks a function
+# sqlglot leaves as a plain call. Every entry is deterministic or reads only the clock: no
+# locks, no files, no variables, no side effects. A deny-list would be open-ended (SLEEP,
+# GET_LOCK, ...), so anything not listed is refused.
+ALLOWED_FUNCTIONS: dict[str, tuple[str, ...]] = {
+    # aggregates
+    "COUNT": ("Count",),
+    "SUM": ("Sum",),
+    "AVG": ("Avg",),
+    "MIN": ("Min",),
+    "MAX": ("Max",),
+    "STDDEV": ("Stddev", "StddevPop", "StddevSamp"),
+    "VARIANCE": ("Variance", "VariancePop"),
+    # date and time
+    "DATE": ("TsOrDsToDate",),
+    "HOUR": ("Hour",),
+    "DAY": ("Day",),
+    "MONTH": ("Month",),
+    "YEAR": ("Year",),
+    "DATE_FORMAT": ("TimeToStr", "TsOrDsToTimestamp"),
+    "DATE_ADD": ("DateAdd",),
+    "DATE_SUB": ("DateSub",),
+    "CURDATE": ("CurrentDate",),
+    "NOW": ("CurrentTimestamp", "Anonymous:NOW"),
+    "TIMESTAMPDIFF": ("TimestampDiff",),
+    "DATEDIFF": ("DateDiff",),
+    "EXTRACT": ("Extract",),
+    # calendar breakdowns a weather question often needs ("which weekday", "per week/quarter")
+    "DAYNAME": ("Dayname",),
+    "MONTHNAME": ("TimeToStr",),
+    "DAYOFWEEK": ("DayOfWeek",),
+    "DAYOFMONTH": ("DayOfMonth",),
+    "DAYOFYEAR": ("DayOfYear",),
+    "WEEK": ("Week",),
+    "QUARTER": ("Quarter",),
+    # math
+    "ROUND": ("Round",),
+    "ABS": ("Abs",),
+    "FLOOR": ("Floor",),
+    "CEIL": ("Ceil",),
+    "LEAST": ("Least",),
+    "GREATEST": ("Greatest",),
+    # conditional and cast
+    "COALESCE": ("Coalesce",),
+    "IFNULL": ("Coalesce",),
+    "NULLIF": ("Nullif",),
+    "IF": ("If",),
+    "CASE": ("Case",),
+    "CAST": ("Cast",),
+    # basic string
+    "CONCAT": ("Concat",),
+    "LOWER": ("Lower",),
+    "UPPER": ("Upper",),
+}
+# sqlglot models the logical connectives and EXISTS as functions; they are always allowed.
+_CONNECTIVE_NODES = frozenset({"And", "Or", "Xor", "Exists"})
+
 ALLOWED_FUNCTION_NODES: frozenset[str] = frozenset(
+    {n for nodes in ALLOWED_FUNCTIONS.values() for n in nodes if not n.startswith("Anonymous:")}
+) | _CONNECTIVE_NODES
+# MySQL functions sqlglot leaves as ``Anonymous`` that are still allowed.
+ALLOWED_ANONYMOUS: frozenset[str] = frozenset(
+    n.split(":", 1)[1]
+    for nodes in ALLOWED_FUNCTIONS.values()
+    for n in nodes
+    if n.startswith("Anonymous:")
+)
+
+# Functions that only an attacker would ask for (delays, locks, file reads, server/user
+# information). A draft using one is refused outright; any other disallowed function gets
+# one repair attempt, because the model most likely just picked a function that is not listed.
+DANGEROUS_FUNCTIONS: frozenset[str] = frozenset(
     {
-        # aggregates
-        "Count", "Sum", "Avg", "Min", "Max",
-        "Stddev", "StddevPop", "StddevSamp", "Variance", "VariancePop",
-        # date / time
-        "TsOrDsToDate", "TsOrDsToTimestamp", "Hour", "Day", "Month", "Year", "Extract",
-        "TimeToStr", "DateAdd", "DateSub", "CurrentDate", "CurrentTimestamp",
-        "TimestampDiff", "DateDiff",
-        # math
-        "Round", "Abs", "Floor", "Ceil",
-        # conditional / cast
-        "Coalesce", "Nullif", "If", "Case", "Cast",
-        # basic string
-        "Concat", "Lower", "Upper",
-        # logical connectives and EXISTS are modelled as functions by sqlglot
-        "And", "Or", "Xor", "Exists",
+        "SLEEP", "BENCHMARK", "LOAD_FILE", "GET_LOCK", "RELEASE_LOCK", "IS_FREE_LOCK",
+        "IS_USED_LOCK", "RELEASE_ALL_LOCKS", "MASTER_POS_WAIT", "SOURCE_POS_WAIT",
+        "WAIT_FOR_EXECUTED_GTID_SET", "USER", "SYSTEM_USER", "SESSION_USER", "CURRENT_USER",
+        "DATABASE", "SCHEMA", "VERSION", "CONNECTION_ID",
     }
 )  # fmt: skip
-# MySQL functions sqlglot leaves as ``Anonymous`` that are still allowed.
-ALLOWED_ANONYMOUS: frozenset[str] = frozenset({"NOW"})
 
 _INTO_FILE = re.compile(r"\bINTO\s+(OUTFILE|DUMPFILE)\b", re.IGNORECASE)
 
@@ -44,11 +103,25 @@ class UnsafeSQLError(ValueError):
     """Raised when SQL does not pass the safety guard."""
 
 
+class DisallowedFunctionError(UnsafeSQLError):
+    """A function outside the allow-list. ``hostile`` marks the known-dangerous ones."""
+
+    def __init__(self, function: str) -> None:
+        super().__init__(f"function {function} is not allowed")
+        self.function = function
+        self.hostile = function in DANGEROUS_FUNCTIONS
+
+
+# sqlglot gives these MySQL functions dedicated node types with different names.
+_NODE_ALIASES = {"CURRENT_SCHEMA": "DATABASE", "CURRENT_VERSION": "VERSION"}
+
+
 def _function_name(node: exp.Expression) -> str:
     """Display name; for ``Anonymous`` use the identifier text so `SLEEP` equals SLEEP."""
     if isinstance(node, exp.Anonymous):
         return node.name.upper()
-    return node.sql_name().upper()
+    name = node.sql_name().upper()
+    return _NODE_ALIASES.get(name, name)
 
 
 def _is_allowed_function(node: exp.Expression) -> bool:
@@ -60,7 +133,7 @@ def _is_allowed_function(node: exp.Expression) -> bool:
 def _check_functions(tree: exp.Expression) -> None:
     for node in tree.find_all(exp.Func):
         if not _is_allowed_function(node):
-            raise UnsafeSQLError(f"function {_function_name(node)} is not allowed")
+            raise DisallowedFunctionError(_function_name(node))
 
 
 def _check_tables(tree: exp.Expression) -> None:

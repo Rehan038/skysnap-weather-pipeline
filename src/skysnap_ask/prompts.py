@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
+from skysnap_ask.guard import ALLOWED_FUNCTIONS
 from skysnap_ask.knowledge import Chunk
 
 
@@ -28,6 +29,12 @@ SQL_DRAFT_SCHEMA: dict = {
 _SQL_RULES = (
     "Write exactly one MySQL SELECT statement.",
     "Use only these tables: dim_city, weather_hourly, weather_rejects.",
+    # Generated from the guard's allow-list so the prompt can never drift from what is enforced.
+    (
+        "Use only these SQL functions (anything else is rejected): "
+        + ", ".join(ALLOWED_FUNCTIONS)
+        + ". Do not use window functions."
+    ),
     "observed_at is in IST (Asia/Kolkata).",
     (
         "If the question cannot be answered from this data, return sql = null "

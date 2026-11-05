@@ -57,7 +57,7 @@ NOT_ALLOWED = [
     "IS_FREE_LOCK('x')", "RELEASE_ALL_LOCKS()", "MASTER_POS_WAIT('a', 1, 1)",
     "LOAD_FILE('/etc/passwd')", "`LOAD_FILE`('/etc/passwd')", "CONNECTION_ID()",
     "RAND()", "UUID()", "UUID_SHORT()", "REPEAT('a', 1000000000)", "GROUP_CONCAT(name)",
-    "REGEXP_LIKE(name, 'a')", "LEAST(1, 2)", "GREATEST(1, 2)", "SUBSTRING(name, 1, 2)",
+    "REGEXP_LIKE(name, 'a')", "SUBSTRING(name, 1, 2)",
     "ROW_NUMBER() OVER (ORDER BY city_id)", "JSON_EXTRACT(name, '$.a')", "USER()",
     "CURRENT_USER()", "VERSION()", "DATABASE()", "weather.sleep(1)", "mysql.some_func(1)",
 ]  # fmt: skip
