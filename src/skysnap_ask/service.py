@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
+
+from google.genai import errors
 
 from .db import (
     DB_UNAVAILABLE_MESSAGE,
@@ -26,12 +29,18 @@ from .prompts import (
     parse_sql_draft,
 )
 
+logger = logging.getLogger("skysnap_ask")
+
 BLANK_QUESTION_ERROR = "Please enter a question."
 LLM_UNAVAILABLE_ERROR = (
     "The language model is temporarily unavailable. Please try again in a minute."
 )
 DB_UNAVAILABLE_ERROR = DB_UNAVAILABLE_MESSAGE
 BAD_DRAFT_ERROR = "Could not understand the language model's response. Please try again."
+LLM_REQUEST_ERROR = "The language model could not process that request. Please try again."
+LLM_EMPTY_ANSWER_ERROR = "The language model returned an empty answer. Please try again."
+DEFAULT_REFUSAL = "I can't answer that from the weather data."
+MAX_QUESTION_CHARS = 1000
 
 
 @dataclass
@@ -69,6 +78,16 @@ class AskService:
         """Answer a question; with answer=False stop after running the SQL (no phrasing call)."""
         if not question or not question.strip():
             return AskResult(question=question, status="failed", error=BLANK_QUESTION_ERROR)
+        if len(question) > MAX_QUESTION_CHARS:
+            # Checked before any embedding or LLM call: a huge question is cost and quota abuse.
+            return AskResult(
+                question=question[:MAX_QUESTION_CHARS],
+                status="failed",
+                error=(
+                    f"Questions are limited to {MAX_QUESTION_CHARS:,} characters "
+                    f"(yours has {len(question):,})."
+                ),
+            )
         result = AskResult(question=question, status="failed")
         try:
             self._run(question, result, answer)
@@ -78,6 +97,11 @@ class AskService:
         except DatabaseUnavailableError:
             result.status = "failed"
             result.error = DB_UNAVAILABLE_ERROR
+        except errors.APIError as exc:
+            # Non-retryable Gemini errors (bad request, safety block, revoked key, removed model).
+            logger.warning("Gemini API error %s: %s", getattr(exc, "code", None), exc)
+            result.status = "failed"
+            result.error = LLM_REQUEST_ERROR
         return result
 
     def _draft(self, prompt: str):
@@ -97,7 +121,7 @@ class AskService:
             return
         if draft.sql is None:
             result.status = "refused"
-            result.answer = draft.reason
+            result.answer = (draft.reason or "").strip() or DEFAULT_REFUSAL
             return
 
         try:
@@ -122,7 +146,13 @@ class AskService:
             prompt = build_answer_prompt(
                 question, result.columns, result.rows, self.answer_row_limit
             )
-            result.answer = self.llm.generate_text(prompt)
+            try:
+                result.answer = self.llm.generate_text(prompt)
+            except ValueError:
+                # Empty / blocked answer: keep the rows and SQL, report the failure.
+                result.status = "failed"
+                result.error = LLM_EMPTY_ANSWER_ERROR
+                return
         result.status = "answered"
 
     def _repair(self, question, context, today, bad_sql, first, result) -> QueryResult | None:

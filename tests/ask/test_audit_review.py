@@ -51,7 +51,6 @@ def test_deeply_nested_sql_is_refused_not_a_crash(sql):
         guard_sql(sql)
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING R-08")
 def test_duplicate_result_column_names_do_not_crash_the_page(_env):
     result = AskResult(
         question="q",

@@ -304,6 +304,7 @@ Dashboard limitations: values are modelled grid data, not station readings; the 
 - **Gridded model data, not station readings:** Temperatures and precipitation are interpolated from weather models, not measured at a physical station — they may differ from local observations.
 - **`SIMPLE_AUTH_MANAGER_ALL_ADMINS`:** This setting grants all users admin access and is suitable for local development only. Do not use in production.
 
+- **Ask SkySnap input limits:** questions are capped at 1,000 characters and generated SQL at 10,000 characters (both checked before anything expensive runs). The model may only call an allow-listed set of SQL functions (aggregates, date/time, rounding, conditionals, CAST, CONCAT/LOWER/UPPER); anything else is refused.
 - **Airflow JWT secret:** `AIRFLOW__API_AUTH__JWT_SECRET` is required in `.env` (no default). Use a long random value.
 
 ---

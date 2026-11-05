@@ -5,7 +5,8 @@ import os
 import pandas as pd
 import streamlit as st
 
-from skysnap_ask.db import QueryError
+from skysnap_ask.db import QueryError, unique_columns
+from skysnap_ask.service import MAX_QUESTION_CHARS
 
 CITIES = "Bengaluru, Mumbai, Delhi, Chennai, Kolkata"
 RANGE_SQL = "SELECT MIN(DATE(observed_at)), MAX(DATE(observed_at)) FROM weather_hourly"
@@ -50,7 +51,7 @@ def show_result(result) -> None:
         st.success(result.answer)
         if result.sql:
             st.code(result.sql, language="sql")
-        st.dataframe(pd.DataFrame(result.rows, columns=result.columns))
+        st.dataframe(pd.DataFrame(result.rows, columns=unique_columns(result.columns)))
     elif result.status == "refused":
         st.info(result.answer)
     else:
@@ -85,7 +86,7 @@ st.write("Try one of these:")
 for i, sample in enumerate(SAMPLES):
     st.button(sample, key=f"sample_{i}", on_click=pick, args=(sample,))
 
-st.text_input("Your question", key="question")
+st.text_input("Your question", key="question", max_chars=MAX_QUESTION_CHARS)
 st.button("Ask", key="ask", on_click=submit)
 
 pending = st.session_state.pop("pending", None)

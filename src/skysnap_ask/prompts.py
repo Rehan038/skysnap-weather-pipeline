@@ -91,17 +91,40 @@ def build_answer_prompt(
     )
 
 
-_FENCE_RE = re.compile(r"^```[A-Za-z0-9_]*\s*\n?(.*?)\n?```$", re.DOTALL)
+_LANG_TAG_RE = re.compile(r"^(?:sql|mysql)\b[ \t]*", re.IGNORECASE)
 
 
-def _clean_sql(sql: object) -> str | None:
+def _is_fence(line: str) -> bool:
+    return line.lstrip().startswith("```")
+
+
+def _unfence(text: str) -> str:
+    """Return the SQL between the first and last Markdown fence line.
+
+    Handles nested or repeated fences, text before or after the block, an unclosed
+    fence and the one-line form. Text with no fence is returned unchanged.
+    """
+    lines = text.splitlines()
+    fences = [i for i, line in enumerate(lines) if _is_fence(line)]
+    if not fences:
+        return text
+    first, last = fences[0], fences[-1]
+    if first == last:
+        rest = lines[first].lstrip()[3:]
+        if rest.rstrip().endswith("```"):  # one-line form
+            body = rest.rstrip()[:-3]
+        else:  # unclosed fence: everything after it
+            body = "\n".join([rest, *lines[first + 1 :]])
+        return _LANG_TAG_RE.sub("", body.strip(), count=1)
+    inner = lines[first + 1 : last]
+    return "\n".join(line for line in inner if not _is_fence(line))
+
+
+def _clean_sql(sql: str | None) -> str | None:
     if sql is None:
         return None
-    text = str(sql).strip()
-    # Models often wrap SQL in Markdown code fences.
-    m = _FENCE_RE.match(text)
-    if m:
-        text = m.group(1).strip()
+    # Models often wrap SQL in Markdown code fences or add chatter around them.
+    text = _unfence(sql.strip()).strip()
     text = text.rstrip().rstrip(";").strip()
     return text or None
 
@@ -116,5 +139,10 @@ def parse_sql_draft(raw: str | dict) -> SqlDraft:
         data = raw
     if not isinstance(data, dict):
         raise ValueError("SQL draft must be a JSON object")  # noqa: TRY004
+    sql = data.get("sql")
+    if sql is not None and not isinstance(sql, str):
+        raise ValueError("SQL draft field 'sql' must be a string or null")
     reason = data.get("reason")
-    return SqlDraft(sql=_clean_sql(data.get("sql")), reason=reason)
+    if not isinstance(reason, str):
+        reason = None  # a non-string reason is unusable; the service shows a default
+    return SqlDraft(sql=_clean_sql(sql), reason=reason)

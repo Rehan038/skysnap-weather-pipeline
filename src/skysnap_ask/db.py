@@ -54,6 +54,24 @@ def scrub_error(message: str) -> str:
     return _IPV4.sub("<host>", message)
 
 
+def unique_columns(columns: list[str]) -> list[str]:
+    """Make result column names unique (``name, name`` -> ``name, name_2``) for display.
+
+    Two selected columns can legitimately share a name (``SELECT c.name, d.name``), but a
+    DataFrame / Arrow table cannot hold duplicates.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for column in columns:
+        candidate, n = column, 1
+        while candidate in seen:
+            n += 1
+            candidate = f"{column}_{n}"
+        seen.add(candidate)
+        out.append(candidate)
+    return out
+
+
 def user_message(exc: QueryError) -> str:
     """Generic text for the UI. The full detail is logged server-side only."""
     logger.warning("database error %s: %s", exc.code, exc)

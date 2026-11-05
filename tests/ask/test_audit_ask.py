@@ -208,7 +208,6 @@ def test_result_never_exposes_a_status_outside_the_contract():
         assert service.ask("q").status in {"answered", "refused", "failed"}
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-05")
 @pytest.mark.parametrize("code", [400, 401, 403, 404])
 def test_non_retryable_llm_api_error_does_not_escape_ask(code):
     """A 4xx from Gemini (bad request, safety block, key revoked, model removed) must come
@@ -219,7 +218,6 @@ def test_non_retryable_llm_api_error_does_not_escape_ask(code):
     assert r.status == "failed" and r.error
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-06")
 @pytest.mark.parametrize("payload", [{}, {"sql": None, "reason": None}, {"sql": "", "reason": ""}])
 def test_refusal_always_carries_a_user_visible_message(payload):
     """The UI renders refused results with st.info(result.answer); None renders an empty box."""
@@ -229,7 +227,6 @@ def test_refusal_always_carries_a_user_visible_message(payload):
     assert (r.answer or r.error or "").strip()
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-07")
 def test_oversized_question_is_rejected_before_any_llm_call():
     """No length cap: a huge question is embedded and sent to the LLM (cost / quota abuse)."""
     service, llm, runner = make([draft(GOOD)], [ok()])
@@ -239,11 +236,15 @@ def test_oversized_question_is_rejected_before_any_llm_call():
     assert service.retriever.calls == []
 
 
-def test_5000_char_question_is_processed():
-    service, llm, _ = make([draft(GOOD)], [ok()])
-    q = "why " * 1250
-    assert service.ask(q).status == "answered"
-    assert q in llm.json_prompts[0] and q in llm.text_prompts[0]
+def test_5000_char_question_is_refused_before_any_llm_call():
+    """Questions are capped at 1,000 characters (finding A-07); see test_ask_hardening.py.
+
+    Prompt building itself still copes with 5,000 characters (test_prompts).
+    """
+    service, llm, runner = make([draft(GOOD)], [ok()])
+    r = service.ask("why " * 1250)
+    assert r.status == "failed" and "1,000" in r.error
+    assert calls(llm, runner) == (0, 0, 0)
 
 
 # --------------------------------------------------------------------------------------
@@ -251,7 +252,6 @@ def test_5000_char_question_is_processed():
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-08")
 def test_generate_json_with_empty_response_text_raises_value_error():
     """Gemini returns text=None for blocked / empty candidates; json.loads(None) is a
     TypeError, which AskService._draft does not catch (it only catches ValueError)."""
@@ -358,7 +358,6 @@ def test_partial_cache_embeds_only_missing_chunks(tmp_path):
     assert set(emb.calls[0]) == {corpus()[0].text, corpus()[4].text}
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-09")
 @pytest.mark.parametrize(
     "bad_value", [None, "oops", [], [1.0, 2.0], {"x": 1}], ids=["null", "str", "empty", "short", "obj"]
 )
@@ -374,7 +373,6 @@ def test_cache_entry_with_wrong_shape_is_rebuilt_not_fatal(tmp_path, bad_value):
     assert "example:1" in ids(r.search("rain rain", 1))
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-09")
 def test_unwritable_cache_location_degrades_to_in_memory(tmp_path):
     """If the cache directory cannot be created (read-only FS / path is a file) the app
     should still start; today the constructor raises."""
@@ -427,7 +425,10 @@ def test_prompt_builders_embed_question_verbatim(q):
     assert "err {x} %s" in rep_p
 
 
-@pytest.mark.parametrize("q", NASTY, ids=range(len(NASTY)))
+NASTY_WITHIN_CAP = [q[:1000] for q in NASTY]  # the service caps questions at 1,000 characters
+
+
+@pytest.mark.parametrize("q", NASTY_WITHIN_CAP, ids=range(len(NASTY_WITHIN_CAP)))
 def test_nasty_question_flows_through_service(q):
     service, llm, _ = make([draft(GOOD)], [ok()])
     r = service.ask(q)
@@ -488,7 +489,6 @@ def test_wrong_typed_sql_is_never_executed(bad):
     assert runner.calls == []
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-10")
 @pytest.mark.parametrize("bad", [123, ["SELECT 1"], {"a": 1}, True])
 def test_wrong_typed_sql_is_a_parse_error_not_stringified(bad):
     """str() coerces a list/dict/int into SQL-looking text; a typed contract violation
@@ -511,7 +511,6 @@ def test_single_fence_is_stripped(raw, expected):
     assert parse_sql_draft({"sql": raw, "reason": None}).sql == expected
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-11")
 @pytest.mark.parametrize(
     "raw",
     [
