@@ -250,14 +250,12 @@ def test_question_text_cannot_change_what_is_guarded():
     assert result.status == "failed"
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING S-01: quoted SLEEP reaches the runner via LLM")
 def test_quoted_sleep_from_llm_never_reaches_runner():
     service, _llm, runner = make([draft("SELECT `SLEEP`(30)")])
     service.ask("q")
     assert runner.calls == []
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING S-01: quoted SLEEP reaches the runner via repair")
 def test_quoted_sleep_from_llm_repair_never_reaches_runner():
     runner = SpyRunner([QueryError("(1054, 'bad')", code=1054)])
     service, _llm, runner = make(
@@ -267,7 +265,6 @@ def test_quoted_sleep_from_llm_repair_never_reaches_runner():
     assert len(runner.calls) == 1
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING S-02: hint disabling the timeout reaches runner")
 def test_timeout_disabling_hint_from_llm_never_reaches_runner():
     service, _llm, runner = make([draft("SELECT /*+ MAX_EXECUTION_TIME(0) */ name FROM dim_city")])
     service.ask("q")

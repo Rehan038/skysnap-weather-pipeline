@@ -11,20 +11,30 @@ from sqlglot.errors import SqlglotError
 ALLOWED_TABLES: frozenset[str] = frozenset({"dim_city", "weather_hourly", "weather_rejects"})
 ALLOWED_SCHEMA = "weather"
 
-BANNED_FUNCTIONS: frozenset[str] = frozenset(
+# Function allow-list, by sqlglot node class (MySQL names that sqlglot maps to a dedicated
+# node, e.g. DATE() -> TsOrDsToDate, IFNULL() -> Coalesce, CURDATE() -> CurrentDate).
+# Anything not listed here is refused: a deny-list is open-ended (SLEEP, GET_LOCK, ...).
+ALLOWED_FUNCTION_NODES: frozenset[str] = frozenset(
     {
-        "SLEEP",
-        "BENCHMARK",
-        "LOAD_FILE",
-        "GET_LOCK",
-        "RELEASE_LOCK",
-        "SYSTEM_USER",
-        "USER",
-        "CURRENT_USER",
-        "DATABASE",
-        "VERSION",
+        # aggregates
+        "Count", "Sum", "Avg", "Min", "Max",
+        "Stddev", "StddevPop", "StddevSamp", "Variance", "VariancePop",
+        # date / time
+        "TsOrDsToDate", "TsOrDsToTimestamp", "Hour", "Day", "Month", "Year", "Extract",
+        "TimeToStr", "DateAdd", "DateSub", "CurrentDate", "CurrentTimestamp",
+        "TimestampDiff", "DateDiff",
+        # math
+        "Round", "Abs", "Floor", "Ceil",
+        # conditional / cast
+        "Coalesce", "Nullif", "If", "Case", "Cast",
+        # basic string
+        "Concat", "Lower", "Upper",
+        # logical connectives and EXISTS are modelled as functions by sqlglot
+        "And", "Or", "Xor", "Exists",
     }
-)
+)  # fmt: skip
+# MySQL functions sqlglot leaves as ``Anonymous`` that are still allowed.
+ALLOWED_ANONYMOUS: frozenset[str] = frozenset({"NOW"})
 
 _INTO_FILE = re.compile(r"\bINTO\s+(OUTFILE|DUMPFILE)\b", re.IGNORECASE)
 
@@ -33,22 +43,23 @@ class UnsafeSQLError(ValueError):
     """Raised when SQL does not pass the safety guard."""
 
 
-# sqlglot gives these MySQL functions dedicated node types with different names.
-_NODE_ALIASES = {"CURRENT_SCHEMA": "DATABASE", "CURRENT_VERSION": "VERSION"}
-
-
 def _function_name(node: exp.Expression) -> str:
+    """Display name; for ``Anonymous`` use the identifier text so `SLEEP` equals SLEEP."""
     if isinstance(node, exp.Anonymous):
-        return str(node.this).upper()
-    name = node.sql_name().upper()
-    return _NODE_ALIASES.get(name, name)
+        return node.name.upper()
+    return node.sql_name().upper()
+
+
+def _is_allowed_function(node: exp.Expression) -> bool:
+    if isinstance(node, exp.Anonymous):
+        return node.name.upper() in ALLOWED_ANONYMOUS
+    return type(node).__name__ in ALLOWED_FUNCTION_NODES
 
 
 def _check_functions(tree: exp.Expression) -> None:
     for node in tree.find_all(exp.Func):
-        name = _function_name(node)
-        if name in BANNED_FUNCTIONS:
-            raise UnsafeSQLError(f"function {name} is not allowed")
+        if not _is_allowed_function(node):
+            raise UnsafeSQLError(f"function {_function_name(node)} is not allowed")
 
 
 def _check_tables(tree: exp.Expression) -> None:

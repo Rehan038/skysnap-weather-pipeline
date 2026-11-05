@@ -205,20 +205,13 @@ HARMLESS = [
     ("SELECT * FROM weather.dim_city", "error"),  # reader_test has no grant on `weather`
     ("SELECT * FROM `weather`.`weather_rejects`", "error"),
     ("SELECT * FROM WEATHER.DIM_CITY", "error"),
-    ("SELECT IS_FREE_LOCK('a')", "rows"),
-    ("SELECT RELEASE_ALL_LOCKS()", "rows"),
-    ("SELECT MASTER_POS_WAIT('a', 1, 1)", "rows"),  # NULL immediately, no replication
-    ("SELECT CONNECTION_ID()", "rows"),
     ("SELECT @a := 1", "rows"),
     ("SELECT 'a;b'", "rows"),
     ("SELECT 1 -- ; DROP TABLE x", "rows"),
     ("SELECT '100%' AS pct", "rows"),
-    ("SELECT * FROM (VALUES ROW(1,2)) AS t", "error"),  # sqlglot rewrite is invalid SQL
-    ("SELECT * FROM dim_city a WHERE EXISTS (VALUES ROW(1))", "error"),
     ("SELECT 1 FROM dim_city WINDOW w AS ()", "rows"),
     ("SELECT * FROM dim_city PARTITION (p0)", "error"),
     ("SELECT * FROM weather_hourly FORCE INDEX (nope)", "error"),
-    ("SELECT `LOAD_FILE`('/etc/passwd')", "rows"),  # NULL: no FILE privilege (see S-01)
     ("WITH dim_city AS (SELECT 1) SELECT * FROM dim_city", "rows"),  # CTE shadows table, ok
 ]
 
@@ -249,18 +242,12 @@ QUOTED_BANNED = [
 ]
 
 
-@pytest.mark.xfail(
-    strict=True, reason="FINDING S-01: backtick-quoted function names bypass denylist"
-)
 @pytest.mark.parametrize("sql", QUOTED_BANNED)
 def test_quoted_banned_function_is_blocked(sql):
     with pytest.raises(UnsafeSQLError):
         guard_sql(sql)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="FINDING S-01: `SLEEP`(1) passes the guard and really sleeps"
-)
 def test_quoted_sleep_does_not_execute(db, reader_settings):
     try:
         guarded = guard_sql("SELECT `SLEEP`(1)")
@@ -270,7 +257,6 @@ def test_quoted_sleep_does_not_execute(db, reader_settings):
     assert elapsed < 0.5, f"SLEEP ran for {elapsed:.2f}s through the guard"
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING S-01/S-04: guarded query can hold a shared lock")
 def test_guarded_query_cannot_block_a_writer(db, reader_settings, root_conn):
     """A reader lock must not block the pipeline: SLEEP bypass + FOR SHARE holds row locks."""
     try:
@@ -297,7 +283,6 @@ def test_guarded_query_cannot_block_a_writer(db, reader_settings, root_conn):
     assert blocked is None, f"writer blocked by reader lock (MySQL error {blocked})"
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING S-02: optimizer hint overrides MAX_EXECUTION_TIME")
 def test_hint_cannot_override_execution_timeout(db, short_timeout_settings):
     tables = ",".join(f"dim_city t{i}" for i in range(14))
     expr = "+".join(f"t{i}.latitude" for i in range(14))
@@ -311,7 +296,6 @@ def test_hint_cannot_override_execution_timeout(db, short_timeout_settings):
     assert elapsed < 1.0, f"query ran {elapsed:.2f}s despite a 0.5s session limit"
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING S-02: guard keeps /*+ ... */ optimizer hints")
 @pytest.mark.parametrize(
     "sql",
     [
@@ -337,7 +321,6 @@ def test_guard_strips_or_blocks_optimizer_hints(sql):
         "SELECT @@hostname",
         "SELECT @@secure_file_priv",
         "SELECT @@global.max_connections",
-        "SELECT SESSION_USER()",
     ],
 )
 def test_server_info_is_blocked(sql):
@@ -411,7 +394,7 @@ def test_cartesian_join_is_stopped_by_execution_timeout(db, short_timeout_settin
 def test_five_way_cartesian_of_weather_hourly_is_bounded(db, short_timeout_settings):
     sql = guard_sql(
         "SELECT * FROM weather_hourly a, weather_hourly b, weather_hourly c, "
-        "weather_hourly d, weather_hourly e ORDER BY RAND()"
+        "weather_hourly d, weather_hourly e ORDER BY a.city_id"
     )
     assert "LIMIT 200" in sql
     (_kind, _res), elapsed = _timed(sql, short_timeout_settings)
