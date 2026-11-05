@@ -126,21 +126,21 @@ def test_path_repair_failure_reports_second_error():
         [draft(GOOD), draft(GOOD2)], [QueryError("first"), QueryError("second")]
     )
     r = service.ask("q")
-    assert (r.status, r.error) == ("failed", "second")
+    assert (r.status, r.error) == ("failed", "The database could not run that query.")
     assert calls(llm, runner) == (2, 0, 2)  # exactly one repair attempt, never a loop
 
 
 def test_path_repair_returns_null_sql():
     service, llm, runner = make([draft(GOOD), draft(None, "give up")], [QueryError("first")])
     r = service.ask("q")
-    assert (r.status, r.error) == ("failed", "first")
+    assert (r.status, r.error) == ("failed", "The database could not run that query.")
     assert calls(llm, runner) == (2, 0, 1)
 
 
 def test_path_repair_unparseable():
     service, llm, runner = make([draft(GOOD), "garbage"], [QueryError("first")])
     r = service.ask("q")
-    assert (r.status, r.error) == ("failed", "first")
+    assert (r.status, r.error) == ("failed", "The database could not run that query.")
     assert calls(llm, runner) == (2, 0, 1)
 
 

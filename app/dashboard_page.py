@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from skysnap_ask.db import QueryError
+from skysnap_ask.db import QueryError, user_message
 from skysnap_dash import charts, filters
 from skysnap_dash.config import load_dash_settings
 from skysnap_dash.data import MySQLDataSource, hit_cap
@@ -39,7 +39,7 @@ def section(name: str, chart_fn, method: str, cap: int, *args) -> None:
     try:
         df = fetch(method, *args)
     except QueryError as exc:
-        st.error(f"Could not load {name}: {exc}")
+        st.error(f"Could not load {name}: {user_message(exc)}")
         return
     if hit_cap(df, cap):
         st.warning(f"Result reached the {cap}-row limit; narrow the date range.")
@@ -56,7 +56,7 @@ try:
     min_day, max_day = fetch("date_bounds")
     health = fetch("health_summary")
 except QueryError as exc:
-    st.error(f"Could not load pipeline health: {exc}")
+    st.error(f"Could not load pipeline health: {user_message(exc)}")
     st.stop()
 
 selected_cities = st.sidebar.multiselect("Cities", list(CITIES), default=list(CITIES))
@@ -104,7 +104,7 @@ try:
     else:
         st.dataframe(rejects, hide_index=True)
 except QueryError as exc:
-    st.error(f"Could not load rejects: {exc}")
+    st.error(f"Could not load rejects: {user_message(exc)}")
 
 city_problem = filters.city_error(selected_cities)
 if city_problem:

@@ -278,7 +278,6 @@ DB_ERROR = (
 )
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING S-05: raw MySQL error text (user, IP) shown in UI")
 def test_database_error_details_are_not_returned_to_the_user():
     runner = SpyRunner([QueryError(DB_ERROR, code=1142), QueryError(DB_ERROR, code=1142)])
     service, _llm, _ = make(

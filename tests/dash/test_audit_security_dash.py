@@ -182,7 +182,6 @@ def test_queries_module_has_no_percent_or_format_interpolation_of_inputs():
 # --------------------------------------------------------------------------------------
 # UI: database error text shown to the viewer
 # --------------------------------------------------------------------------------------
-@pytest.mark.xfail(strict=True, reason="FINDING S-05: raw MySQL error text (user, IP) shown in UI")
 def test_dashboard_does_not_show_raw_database_errors():
     import streamlit as st
     from streamlit.testing.v1 import AppTest

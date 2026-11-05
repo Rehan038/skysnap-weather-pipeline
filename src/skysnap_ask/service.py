@@ -7,7 +7,14 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 
-from .db import DatabaseUnavailableError, QueryError, QueryResult
+from .db import (
+    DB_UNAVAILABLE_MESSAGE,
+    DatabaseUnavailableError,
+    QueryError,
+    QueryResult,
+    scrub_error,
+    user_message,
+)
 from .guard import UnsafeSQLError, guard_sql
 from .knowledge import Chunk
 from .llm import LLMUnavailableError
@@ -23,7 +30,7 @@ BLANK_QUESTION_ERROR = "Please enter a question."
 LLM_UNAVAILABLE_ERROR = (
     "The language model is temporarily unavailable. Please try again in a minute."
 )
-DB_UNAVAILABLE_ERROR = "Database unavailable. Please try again in a minute."
+DB_UNAVAILABLE_ERROR = DB_UNAVAILABLE_MESSAGE
 BAD_DRAFT_ERROR = "Could not understand the language model's response. Please try again."
 
 
@@ -105,7 +112,7 @@ class AskService:
         except DatabaseUnavailableError:
             raise
         except QueryError as first:
-            query = self._repair(question, context, today, sql, str(first), result)
+            query = self._repair(question, context, today, sql, first, result)
             if query is None:
                 return
 
@@ -118,8 +125,10 @@ class AskService:
             result.answer = self.llm.generate_text(prompt)
         result.status = "answered"
 
-    def _repair(self, question, context, today, bad_sql, error, result) -> QueryResult | None:
-        result.error = error
+    def _repair(self, question, context, today, bad_sql, first, result) -> QueryResult | None:
+        result.error = user_message(first)
+        # The model sees the SQL error, but not the account or host names.
+        error = scrub_error(str(first))
         draft = self._draft(build_repair_prompt(question, context, today, bad_sql, error))
         if draft is None or draft.sql is None:
             return None
@@ -134,5 +143,5 @@ class AskService:
         except DatabaseUnavailableError:
             raise
         except QueryError as second:
-            result.error = str(second)
+            result.error = user_message(second)
             return None

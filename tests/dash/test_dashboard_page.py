@@ -136,7 +136,8 @@ def test_empty_chart_data_shows_filter_message():
 def test_query_error_in_one_section_does_not_stop_others():
     at, _ = run(FakeDataSource(error={"daily_rainfall": "boom"}))
     assert not at.exception
-    assert "Could not load rainfall: boom" in texts(at)
+    assert "Could not load rainfall: The database could not run that query." in texts(at)
+    assert "boom" not in texts(at)
     assert len(charts(at)) == 4
 
 
