@@ -15,8 +15,19 @@ class QueryResult:
     rows: list[tuple]
 
 
+CONNECTION_ERROR_CODES = frozenset({2002, 2003, 2006, 2013})
+
+
 class QueryError(RuntimeError):
     """A database error raised while running a generated query."""
+
+    def __init__(self, message: str = "", code: int | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class DatabaseUnavailableError(QueryError):
+    """The database could not be reached (or the connection dropped)."""
 
 
 def run_readonly(sql: str, settings: Settings) -> QueryResult:
@@ -39,5 +50,10 @@ def run_readonly(sql: str, settings: Settings) -> QueryResult:
         finally:
             conn.close()
     except pymysql.MySQLError as exc:
-        raise QueryError(str(exc)) from exc
+        code = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+        if code in CONNECTION_ERROR_CODES:
+            raise DatabaseUnavailableError(str(exc), code=code) from exc
+        raise QueryError(str(exc), code=code) from exc
+    except OSError as exc:  # includes ConnectionError
+        raise DatabaseUnavailableError(str(exc)) from exc
     return QueryResult(columns=columns, rows=rows)

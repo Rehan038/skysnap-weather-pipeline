@@ -1,10 +1,10 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from skysnap_ask.db import QueryError, QueryResult
+from skysnap_ask.db import DatabaseUnavailableError, QueryError, QueryResult
 from skysnap_ask.knowledge import Chunk
 from skysnap_ask.llm import LLMUnavailableError
-from skysnap_ask.service import AskService
+from skysnap_ask.service import DB_UNAVAILABLE_ERROR, AskService
 
 from .fakes import FakeLLM, FakeRetriever, FakeRunner
 
@@ -175,3 +175,36 @@ def test_blank_question_failed():
 def test_runner_is_public_attribute():
     service, _, runner = make([], [])
     assert service.runner is runner
+
+
+def test_connection_error_skips_repair():
+    down = DatabaseUnavailableError("(2003, \"Can't connect\")", code=2003)
+    service, llm, runner = make([draft(GOOD_SQL)], [down])
+    result = service.ask("Which cities?")
+    assert result.status == "failed"
+    assert result.error == DB_UNAVAILABLE_ERROR
+    assert result.error == "Database unavailable. Please try again in a minute."
+    assert result.sql is not None
+    assert len(llm.json_prompts) == 1
+    assert len(runner.calls) == 1
+    assert llm.text_prompts == []
+
+
+def test_sql_error_still_repairs():
+    err = QueryError("Unknown column 'temp'", code=1054)
+    service, llm, _runner = make([draft(GOOD_SQL), draft(GOOD_SQL)], [err, ok()])
+    result = service.ask("Which cities?")
+    assert result.status == "answered"
+    assert len(llm.json_prompts) == 2
+
+
+def test_connection_error_during_repair_does_not_loop():
+    first = QueryError("Unknown column 'temp'", code=1054)
+    down = DatabaseUnavailableError("(2013, 'Lost connection')", code=2013)
+    service, llm, runner = make([draft(GOOD_SQL), draft(GOOD_SQL)], [first, down])
+    result = service.ask("Which cities?")
+    assert result.status == "failed"
+    assert result.error == DB_UNAVAILABLE_ERROR
+    assert len(llm.json_prompts) == 2
+    assert len(runner.calls) == 2
+    assert llm.text_prompts == []

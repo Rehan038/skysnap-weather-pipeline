@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 
-from .db import QueryError, QueryResult
+from .db import DatabaseUnavailableError, QueryError, QueryResult
 from .guard import UnsafeSQLError, guard_sql
 from .knowledge import Chunk
 from .llm import LLMUnavailableError
@@ -23,6 +23,7 @@ BLANK_QUESTION_ERROR = "Please enter a question."
 LLM_UNAVAILABLE_ERROR = (
     "The language model is temporarily unavailable. Please try again in a minute."
 )
+DB_UNAVAILABLE_ERROR = "Database unavailable. Please try again in a minute."
 BAD_DRAFT_ERROR = "Could not understand the language model's response. Please try again."
 
 
@@ -67,6 +68,9 @@ class AskService:
         except LLMUnavailableError:
             result.status = "failed"
             result.error = LLM_UNAVAILABLE_ERROR
+        except DatabaseUnavailableError:
+            result.status = "failed"
+            result.error = DB_UNAVAILABLE_ERROR
         return result
 
     def _draft(self, prompt: str):
@@ -98,6 +102,8 @@ class AskService:
 
         try:
             query = self.runner(sql)
+        except DatabaseUnavailableError:
+            raise
         except QueryError as first:
             query = self._repair(question, context, today, sql, str(first), result)
             if query is None:
@@ -125,6 +131,8 @@ class AskService:
         result.sql = sql
         try:
             return self.runner(sql)
+        except DatabaseUnavailableError:
+            raise
         except QueryError as second:
             result.error = str(second)
             return None
