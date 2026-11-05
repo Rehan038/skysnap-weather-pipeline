@@ -57,7 +57,7 @@ jobs:
           TEST_WAREHOUSE_DB: weather_test
           WAREHOUSE_USER: weather
           WAREHOUSE_PASSWORD: weather
-        run: pytest -v --ignore=tests/ask
+        run: pytest -v --ignore=tests/ask --ignore=tests/dash
 
   ask:
     runs-on: ubuntu-latest
@@ -107,4 +107,4 @@ jobs:
           TEST_MYSQL_ROOT_PASSWORD: root
           WAREHOUSE_USER: weather
           WAREHOUSE_PASSWORD: weather
-        run: pytest tests/ask -v --cov=skysnap_ask --cov-report=term-missing --cov-fail-under=85
+        run: pytest tests/ask tests/dash -v --cov=skysnap_ask --cov=skysnap_dash --cov-report=term-missing --cov-fail-under=85
