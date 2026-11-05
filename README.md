@@ -249,6 +249,31 @@ Empty set (0 rows) — all rows passed validation checks.
 
 Each task retries 3 times with exponential backoff (`retry_delay` 2 minutes, doubling per attempt). This was verified inside Airflow, not just in Python: with the API URL pointed at a dead address, all 5 per-city `extract` tasks failed with `Connection refused`, retried 3 more times (gaps of roughly 5, 13 and 27 minutes in the observed run, because Airflow adds jitter to the backoff), then ended `failed`; `validate` and `load` became `upstream_failed`. The failed run wrote nothing, and the previously loaded rows (24 per city for 2026-10-10) were unchanged. After restoring the real URL and clearing the run, it finished `success` with the same 24 rows per city.
 
+## Dashboard
+
+The Streamlit app at http://localhost:8501 has two pages in its sidebar: **Ask SkySnap** and **Dashboard**. The Dashboard is plain analytics over the warehouse: fixed, parameterised SQL run as the read-only `skysnap_reader` account, no LLM and no user-written SQL.
+
+**Pipeline health (top of the page)**
+- Tiles: latest date loaded, data age in days, total rows and rejected rows.
+- Freshness colour: age 0-1 days is green, 2-3 amber, more than 3 red (no data is red). Age is measured against today's date in India (`Asia/Kolkata`).
+- Rows loaded per day (one bar per day with a reference line at 120 = 5 cities x 24 hours) and rejected rows by reason, or "No rejected rows".
+
+**Charts** (all respect the sidebar filters)
+1. Daily maximum (solid) and minimum (dashed) temperature per city.
+2. Daily rainfall per city, as grouped bars.
+3. Average temperature by hour of day (0-23) per city.
+4. Humidity distribution per city, as a box plot of the hourly values.
+
+**Filters:** city multi-select (all five by default) and a date range (the last 30 days of available data by default, limited to the dates in the database). The sidebar also shows when data was last loaded. Results are cached for 10 minutes.
+
+<!-- SCREENSHOT_PLACEHOLDER: docs/img/dashboard.png (the Dashboard page with the health panel and charts) -->
+
+How it is built: `src/skysnap_dash/` holds the query builders (`%s` placeholders with a fixed city allow-list), the data source, the chart builders and the freshness rules; `app/dashboard_page.py` is layout only. Tests use fakes for the UI and seeded `weather_test` data for the SQL, and CI runs them with the same 85% coverage gate as Ask SkySnap.
+
+Dashboard limitations: values are modelled grid data, not station readings; the page is a snapshot cached for 10 minutes with no auto-refresh; "Data last loaded" shows the latest observed day, because the pipeline stores the day it loaded and not a wall-clock load time; the humidity box plot loads up to 50,000 hourly values and warns if a range hits that cap.
+
+---
+
 ## Design Decisions
 
 | Decision | Rationale |
