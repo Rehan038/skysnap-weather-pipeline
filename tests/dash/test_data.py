@@ -86,3 +86,9 @@ def test_hit_cap():
     df = pd.DataFrame({"a": [1, 2, 3]})
     assert hit_cap(df, 3)
     assert not hit_cap(df, 4)
+
+
+def test_health_summary_empty_result_is_zeroes(source):
+    source.state["columns"] = ["latest", "total", "rejected"]
+    source.state["rows"] = []
+    assert source.health_summary() == HealthSummary(None, 0, 0)
