@@ -114,6 +114,12 @@ def _guard(sql: str, max_rows: int) -> str:
         raise UnsafeSQLError("only SELECT statements are allowed")
     if tree.find(exp.Into) is not None:
         raise UnsafeSQLError("INTO is not allowed")
+    if tree.find(exp.SessionParameter) is not None:
+        # @@version, @@datadir, @@hostname ... leak server details; user variables (@a) are inert.
+        raise UnsafeSQLError("system variables are not allowed")
+    if tree.find(exp.Lock) is not None:
+        # FOR UPDATE / FOR SHARE / LOCK IN SHARE MODE could hold locks that block the pipeline.
+        raise UnsafeSQLError("locking reads are not allowed")
     if tree.find(exp.Hint) is not None:
         # A /*+ ... */ hint can override the session MAX_EXECUTION_TIME set by run_readonly.
         raise UnsafeSQLError("optimizer hints are not allowed")

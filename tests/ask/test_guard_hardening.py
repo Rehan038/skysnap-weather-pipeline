@@ -51,3 +51,60 @@ def test_deeply_nested_sql_never_raises_recursion_error(depth):
         guard_sql(sql)
     except UnsafeSQLError:
         pass  # refused is fine; a RecursionError (any other exception) is not
+
+
+# ---- S-03: system variables and SESSION_USER -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT @@version",
+        "SELECT @@global.version",
+        "SELECT @@session.sql_mode",
+        "SELECT @@datadir",
+        "SELECT @@hostname",
+        "SELECT @@GLOBAL.max_connections",
+        "SELECT 1 FROM dim_city WHERE @@version LIKE '8%'",
+        "SELECT city_id FROM dim_city ORDER BY @@server_id",
+        "SELECT (SELECT @@secure_file_priv)",
+        "SELECT SESSION_USER()",
+    ],
+)
+def test_system_variables_and_session_user_are_refused(sql):
+    with pytest.raises(UnsafeSQLError):
+        guard_sql(sql)
+
+
+def test_user_variables_remain_allowed_because_they_are_harmless():
+    """`@a := 1` is a per-connection scratch variable; run_readonly opens a new connection."""
+    assert guard_sql("SELECT @a := 1")
+
+
+# ---- S-04: locking reads --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM dim_city FOR UPDATE",
+        "SELECT * FROM dim_city FOR SHARE",
+        "SELECT * FROM dim_city LOCK IN SHARE MODE",
+        "SELECT * FROM dim_city FOR UPDATE SKIP LOCKED",
+        "SELECT * FROM dim_city FOR UPDATE NOWAIT",
+        "SELECT * FROM dim_city FOR SHARE OF dim_city",
+        "SELECT city_id FROM (SELECT * FROM dim_city FOR UPDATE) t",
+        "SELECT 1 UNION SELECT city_id FROM dim_city FOR SHARE",
+        "WITH c AS (SELECT * FROM dim_city FOR UPDATE) SELECT * FROM c",
+    ],
+)
+def test_locking_reads_are_refused(sql):
+    with pytest.raises(UnsafeSQLError, match="lock"):
+        guard_sql(sql)
+
+
+def test_executable_comment_lock_clause_is_defused():
+    """`/*!50000 FOR UPDATE */` becomes an ordinary comment, so it is not a locking read."""
+    out = guard_sql("SELECT * FROM dim_city /*!50000 FOR UPDATE */")
+    assert "/*!" not in out and "FOR UPDATE" in out  # only inside the inert `/* !50000 ... */`
+    assert out.count("/*") == 1 and "/* !50000" in out

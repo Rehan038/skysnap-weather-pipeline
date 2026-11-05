@@ -199,9 +199,6 @@ HARMLESS_ERROR_CODES = {1142, 1044, 1064, 1241, 1370, 1146, 1176, 1747, 3024, 12
 # --------------------------------------------------------------------------------------
 HARMLESS = [
     # (sql, expected execution outcome)
-    ("SELECT * FROM dim_city FOR UPDATE", "error"),  # 1142: needs UPDATE/LOCK TABLES priv
-    ("SELECT * FROM dim_city FOR UPDATE SKIP LOCKED", "error"),
-    ("SELECT * FROM dim_city FOR UPDATE OF dim_city", "error"),
     ("SELECT * FROM weather.dim_city", "error"),  # reader_test has no grant on `weather`
     ("SELECT * FROM `weather`.`weather_rejects`", "error"),
     ("SELECT * FROM WEATHER.DIM_CITY", "error"),
@@ -311,7 +308,6 @@ def test_guard_strips_or_blocks_optimizer_hints(sql):
     assert "/*+" not in out
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING S-03: server/system info is readable")
 @pytest.mark.parametrize(
     "sql",
     [
@@ -328,7 +324,6 @@ def test_server_info_is_blocked(sql):
         guard_sql(sql)
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING S-04: locking reads are allowed by the guard")
 @pytest.mark.parametrize(
     "sql",
     [
@@ -336,7 +331,10 @@ def test_server_info_is_blocked(sql):
         "SELECT * FROM dim_city LOCK IN SHARE MODE",
         "SELECT * FROM dim_city FOR UPDATE",
         "SELECT * FROM dim_city FOR UPDATE SKIP LOCKED",
-        "SELECT * FROM dim_city /*!50000 FOR UPDATE */",
+        # `/*!50000 FOR UPDATE */` is deliberately NOT here: sqlglot re-emits it as the inert
+        # comment `/* !50000 FOR UPDATE */`, so MySQL never sees a lock. It is not a
+        # locking read after the guard; test_executable_comment_lock_clause_is_defused
+        # (test_guard_hardening.py) pins that instead of over-blocking it.
     ],
 )
 def test_locking_reads_are_blocked(sql):
