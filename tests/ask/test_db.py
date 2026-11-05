@@ -117,6 +117,63 @@ def test_sql_error_is_plain_query_error_with_code(monkeypatch, reader_settings):
     assert exc.value.code == 1054
 
 
+class _RecCursor:
+    def __init__(self, calls):
+        self.calls = calls
+        self.description = [("n",)]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, *args):
+        self.calls.append(args)
+
+    def fetchall(self):
+        return [(1,)]
+
+
+class _RecConn:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def cursor(self):
+        return _RecCursor(self.calls)
+
+    def close(self):
+        pass
+
+
+def _recording_settings(monkeypatch):
+    from skysnap_ask.config import load_settings
+
+    calls: list[tuple] = []
+    monkeypatch.setattr("skysnap_ask.db.pymysql.connect", lambda **kw: _RecConn(calls))
+    return calls, load_settings(
+        {"GEMINI_API_KEY": "k", "GEMINI_MODEL": "m", "GEMINI_EMBED_MODEL": "e"}
+    )
+
+
+def test_params_none_executes_sql_only(monkeypatch):
+    calls, s = _recording_settings(monkeypatch)
+    run_readonly("SELECT 1", s)
+    assert calls[-1] == ("SELECT 1",)
+
+
+def test_params_are_passed_to_execute(monkeypatch):
+    calls, s = _recording_settings(monkeypatch)
+    run_readonly("SELECT %s", s, ("a",))
+    assert calls[-1] == ("SELECT %s", ("a",))
+    assert calls[0] == ("SET SESSION MAX_EXECUTION_TIME = 5000",)
+
+
+def test_parameterised_query_runs_as_reader(db, reader_settings):
+    result = run_readonly("SELECT name FROM dim_city WHERE name = %s", reader_settings, ("Delhi",))
+    assert result.rows == [("Delhi",)]
+
+
 def test_plain_query_error_still_constructible_with_message_only():
     err = QueryError("text")
     assert str(err) == "text"

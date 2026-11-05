@@ -30,7 +30,7 @@ class DatabaseUnavailableError(QueryError):
     """The database could not be reached (or the connection dropped)."""
 
 
-def run_readonly(sql: str, settings: Settings) -> QueryResult:
+def run_readonly(sql: str, settings: Settings, params: tuple | None = None) -> QueryResult:
     """Run one query as the reader account with a server-side execution limit."""
     try:
         conn = pymysql.connect(
@@ -44,7 +44,10 @@ def run_readonly(sql: str, settings: Settings) -> QueryResult:
         try:
             with conn.cursor() as cur:
                 cur.execute(f"SET SESSION MAX_EXECUTION_TIME = {int(settings.query_timeout_ms)}")
-                cur.execute(sql)
+                if params is None:
+                    cur.execute(sql)
+                else:
+                    cur.execute(sql, params)
                 columns = [d[0] for d in cur.description or []]
                 rows = [tuple(r) for r in cur.fetchall()]
         finally:
