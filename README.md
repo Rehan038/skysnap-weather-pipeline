@@ -266,6 +266,7 @@ flowchart LR
     G -->|"sql = null"| X["Refused<br/>(out of scope)"]
     G --> S["SQL guard"]
     S -->|"blocked"| F["Failed<br/>(nothing executed)"]
+    S -->|"function not allowed:<br/>one repair try"| G
     S --> M[("Read-only MySQL<br/>skysnap_reader")]
     M -->|"error: one repair try"| G
     M --> A["Gemini phrases answer<br/>from returned rows"]
@@ -274,11 +275,13 @@ flowchart LR
 
 ### Safety layers
 
-1. **SQL guard** (`src/skysnap_ask/guard.py`, built on `sqlglot`): exactly one statement; only `SELECT` (or a `UNION` of selects); no `INTO`; only the tables `dim_city`, `weather_hourly`, `weather_rejects` (CTE names are fine); banned functions such as `SLEEP`, `BENCHMARK`, `LOAD_FILE`, `DATABASE`, `VERSION`; a `LIMIT` of at most 200 rows is added or enforced.
-2. **Read-only database account**: queries run as `skysnap_reader`, which has `SELECT` on `weather.*` and nothing else, so even SQL that slipped past the guard cannot change data.
-3. **Time limit**: every query runs with `MAX_EXECUTION_TIME = 5000` ms.
+1. **SQL guard** (`src/skysnap_ask/guard.py`, built on `sqlglot`): at most 10,000 characters; exactly one statement; only `SELECT` (or a `UNION` of selects); no `INTO`, no locking reads (`FOR UPDATE`, `FOR SHARE`), no optimizer hints, no `@@` system variables; only the tables `dim_city`, `weather_hourly`, `weather_rejects` (CTE names are fine); a `LIMIT` of at most 200 rows is added or enforced.
+2. **Function allow-list**: only aggregates (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV`, `VARIANCE`), date and time functions (`DATE`, `HOUR`, `DAY`, `MONTH`, `YEAR`, `DATE_FORMAT`, `DATE_ADD`, `DATE_SUB`, `DAYNAME`, `MONTHNAME`, `DAYOFWEEK`, `WEEK`, `QUARTER`, `CURDATE`, `NOW`, `TIMESTAMPDIFF`, `DATEDIFF`, `EXTRACT` and a few more), `ROUND`/`ABS`/`FLOOR`/`CEIL`/`LEAST`/`GREATEST`, `COALESCE`/`IFNULL`/`NULLIF`/`IF`/`CASE`/`CAST`, and `CONCAT`/`LOWER`/`UPPER`. Anything else is refused (`SLEEP`, `GET_LOCK`, `USER`, `VERSION` and friends immediately; other functions after one repair attempt). The list lives in one constant (`ALLOWED_FUNCTIONS`), and the prompt shown to the model is generated from it, so the two cannot drift apart.
+3. **Read-only database account**: queries run as `skysnap_reader`, which has `SELECT` on `dim_city`, `weather_hourly` and `weather_rejects` only (not the whole schema), at most 10 connections, and cannot change data even if SQL slipped past the guard.
+4. **Time limit**: every query runs with `MAX_EXECUTION_TIME = 5000` ms.
+5. **Safe display**: model text is shown as plain text (no live links, images or HTML), and database errors are shown as a generic message plus the MySQL error code; the full detail goes to the server log only.
 
-Failures are bounded: a MySQL error triggers one repair attempt (the error is fed back to the model), then a clear failure message. Gemini rate limits (HTTP 429/503) are retried with exponential backoff, then reported as "temporarily unavailable"; the app does not crash.
+Failures are bounded: a question gets at most one repair attempt, either after a MySQL error (the error, with account and host names removed, is fed back to the model) or after a non-allowed function; then a clear failure message. Gemini rate limits (HTTP 429/503) are retried with exponential backoff, then reported as "temporarily unavailable"; the app does not crash.
 
 ### Setup
 
@@ -288,7 +291,8 @@ Failures are bounded: a MySQL error triggers one repair attempt (the error is fe
 #      GEMINI_API_KEY=...            (never commit this file)
 #      GEMINI_MODEL=gemini-3.5-flash
 #      GEMINI_EMBED_MODEL=gemini-embedding-001
-#      SKYSNAP_READER_PASSWORD=...   (any strong password for the read-only account)
+#      SKYSNAP_READER_PASSWORD=...   (any strong password for the read-only account; required)
+#    plus the other required variables listed in Quick Start (there are no default passwords)
 docker compose up -d --build
 # 3. Open http://localhost:8501
 ```
@@ -327,6 +331,9 @@ CI runs the first two tiers with no Gemini calls (`ask` job, coverage gate 85%).
 ### Ask SkySnap limitations
 
 - Gemini free tier allows ~20 text requests/day; each question uses 1-3 calls.
+- Questions are limited to 1,000 characters and generated SQL to 10,000 characters; both are checked before anything expensive runs.
+- The model may only use the allow-listed SQL functions above (no window functions, no `GROUP_CONCAT`, no string slicing such as `SUBSTRING`); a question that needs one is repaired once or refused.
+- The reader account can only read `dim_city`, `weather_hourly` and `weather_rejects`.
 - LLM-generated SQL can still be semantically wrong; the evaluation score quantifies this.
 - On the Gemini free tier, Google may use prompts to improve its products. Only public weather data and the question text are sent.
 
@@ -383,7 +390,6 @@ Dashboard limitations: values are modelled grid data, not station readings; the 
 - **Gridded model data, not station readings:** Temperatures and precipitation are interpolated from weather models, not measured at a physical station — they may differ from local observations.
 - **`SIMPLE_AUTH_MANAGER_ALL_ADMINS`:** This setting grants all users admin access and is suitable for local development only. Do not use in production.
 
-- **Ask SkySnap input limits:** questions are capped at 1,000 characters and generated SQL at 10,000 characters (both checked before anything expensive runs). The model may only call an allow-listed set of SQL functions (aggregates, date/time, rounding, conditionals, CAST, CONCAT/LOWER/UPPER); anything else is refused.
 - **Airflow JWT secret:** `AIRFLOW__API_AUTH__JWT_SECRET` is required in `.env` (no default). Use a long random value.
 
 ---
