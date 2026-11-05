@@ -18,7 +18,7 @@ def root_conn():
     root_password = os.getenv("TEST_MYSQL_ROOT_PASSWORD")
     if not root_password:
         pytest.skip("set TEST_MYSQL_ROOT_PASSWORD to MYSQL_ROOT_PASSWORD from .env")
-    host = os.getenv("TEST_WAREHOUSE_HOST", os.getenv("WAREHOUSE_HOST", "localhost"))
+    host = os.getenv("TEST_WAREHOUSE_HOST", os.getenv("WAREHOUSE_HOST", "127.0.0.1"))
     port = int(os.getenv("TEST_WAREHOUSE_PORT", "3307"))
     try:
         conn = pymysql.connect(
@@ -51,7 +51,7 @@ def reader_settings(root_conn):
         gemini_api_key=None,
         gemini_model="unused",
         gemini_embed_model="unused",
-        reader_host=os.getenv("TEST_WAREHOUSE_HOST", os.getenv("WAREHOUSE_HOST", "localhost")),
+        reader_host=os.getenv("TEST_WAREHOUSE_HOST", os.getenv("WAREHOUSE_HOST", "127.0.0.1")),
         reader_port=int(os.getenv("TEST_WAREHOUSE_PORT", "3307")),
         reader_user=TEST_READER_USER,
         reader_password=TEST_READER_PASSWORD,

@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 
-from .db import DatabaseUnavailableError, QueryError, QueryResult
-from .guard import UnsafeSQLError, guard_sql
+from google.genai import errors
+
+from .db import (
+    DB_UNAVAILABLE_MESSAGE,
+    DatabaseUnavailableError,
+    QueryError,
+    QueryResult,
+    scrub_error,
+    user_message,
+)
+from .guard import DisallowedFunctionError, UnsafeSQLError, guard_sql
 from .knowledge import Chunk
 from .llm import LLMUnavailableError
 from .prompts import (
@@ -19,12 +29,18 @@ from .prompts import (
     parse_sql_draft,
 )
 
+logger = logging.getLogger("skysnap_ask")
+
 BLANK_QUESTION_ERROR = "Please enter a question."
 LLM_UNAVAILABLE_ERROR = (
     "The language model is temporarily unavailable. Please try again in a minute."
 )
-DB_UNAVAILABLE_ERROR = "Database unavailable. Please try again in a minute."
+DB_UNAVAILABLE_ERROR = DB_UNAVAILABLE_MESSAGE
 BAD_DRAFT_ERROR = "Could not understand the language model's response. Please try again."
+LLM_REQUEST_ERROR = "The language model could not process that request. Please try again."
+LLM_EMPTY_ANSWER_ERROR = "The language model returned an empty answer. Please try again."
+DEFAULT_REFUSAL = "I can't answer that from the weather data."
+MAX_QUESTION_CHARS = 1000
 
 
 @dataclass
@@ -62,6 +78,16 @@ class AskService:
         """Answer a question; with answer=False stop after running the SQL (no phrasing call)."""
         if not question or not question.strip():
             return AskResult(question=question, status="failed", error=BLANK_QUESTION_ERROR)
+        if len(question) > MAX_QUESTION_CHARS:
+            # Checked before any embedding or LLM call: a huge question is cost and quota abuse.
+            return AskResult(
+                question=question[:MAX_QUESTION_CHARS],
+                status="failed",
+                error=(
+                    f"Questions are limited to {MAX_QUESTION_CHARS:,} characters "
+                    f"(yours has {len(question):,})."
+                ),
+            )
         result = AskResult(question=question, status="failed")
         try:
             self._run(question, result, answer)
@@ -71,6 +97,11 @@ class AskService:
         except DatabaseUnavailableError:
             result.status = "failed"
             result.error = DB_UNAVAILABLE_ERROR
+        except errors.APIError as exc:
+            # Non-retryable Gemini errors (bad request, safety block, revoked key, removed model).
+            logger.warning("Gemini API error %s: %s", getattr(exc, "code", None), exc)
+            result.status = "failed"
+            result.error = LLM_REQUEST_ERROR
         return result
 
     def _draft(self, prompt: str):
@@ -90,11 +121,20 @@ class AskService:
             return
         if draft.sql is None:
             result.status = "refused"
-            result.answer = draft.reason
+            result.answer = (draft.reason or "").strip() or DEFAULT_REFUSAL
             return
 
+        repaired = False  # a question gets at most one repair, whatever triggered it
         try:
             sql = guard_sql(draft.sql, self.max_rows)
+        except DisallowedFunctionError as exc:
+            if exc.hostile:
+                result.error = f"Blocked: {exc}"
+                return
+            sql = self._repair_blocked_function(question, context, today, draft.sql, exc, result)
+            if sql is None:
+                return
+            repaired = True
         except UnsafeSQLError as exc:
             result.error = f"Blocked: {exc}"
             return
@@ -105,7 +145,10 @@ class AskService:
         except DatabaseUnavailableError:
             raise
         except QueryError as first:
-            query = self._repair(question, context, today, sql, str(first), result)
+            if repaired:
+                result.error = user_message(first)
+                return
+            query = self._repair(question, context, today, sql, first, result)
             if query is None:
                 return
 
@@ -115,11 +158,35 @@ class AskService:
             prompt = build_answer_prompt(
                 question, result.columns, result.rows, self.answer_row_limit
             )
-            result.answer = self.llm.generate_text(prompt)
+            try:
+                result.answer = self.llm.generate_text(prompt)
+            except ValueError:
+                # Empty / blocked answer: keep the rows and SQL, report the failure.
+                result.status = "failed"
+                result.error = LLM_EMPTY_ANSWER_ERROR
+                return
         result.status = "answered"
 
-    def _repair(self, question, context, today, bad_sql, error, result) -> QueryResult | None:
-        result.error = error
+    def _repair_blocked_function(self, question, context, today, bad_sql, exc, result):
+        """One repair for a draft that used a function outside the allow-list.
+
+        Returns the guarded SQL of the rewrite, or None (with ``result.error`` set).
+        """
+        error = f"{exc}. Rewrite the query using only the allowed functions listed in the rules."
+        draft = self._draft(build_repair_prompt(question, context, today, bad_sql, error))
+        if draft is None or draft.sql is None:
+            result.error = f"Blocked: {exc}"
+            return None
+        try:
+            return guard_sql(draft.sql, self.max_rows)
+        except UnsafeSQLError as second:
+            result.error = f"Blocked: {second}"
+            return None
+
+    def _repair(self, question, context, today, bad_sql, first, result) -> QueryResult | None:
+        result.error = user_message(first)
+        # The model sees the SQL error, but not the account or host names.
+        error = scrub_error(str(first))
         draft = self._draft(build_repair_prompt(question, context, today, bad_sql, error))
         if draft is None or draft.sql is None:
             return None
@@ -134,5 +201,5 @@ class AskService:
         except DatabaseUnavailableError:
             raise
         except QueryError as second:
-            result.error = str(second)
+            result.error = user_message(second)
             return None

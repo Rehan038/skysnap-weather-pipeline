@@ -96,7 +96,8 @@ def test_repair_fails_twice():
     )
     result = service.ask("Q")
     assert result.status == "failed"
-    assert "second error" in result.error
+    assert result.error == "The database could not run that query."  # raw MySQL text stays server-side (S-05)
+    assert "second error" not in result.error
     assert len(runner.calls) == 2
 
 
@@ -118,7 +119,8 @@ def test_repair_refused_is_failed_with_db_error():
     )
     result = service.ask("Q")
     assert result.status == "failed"
-    assert "boom" in result.error
+    assert result.error == "The database could not run that query."
+    assert "boom" not in result.error
 
 
 def test_zero_rows_still_answered():

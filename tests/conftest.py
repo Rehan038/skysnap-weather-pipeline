@@ -35,8 +35,39 @@ def mysql_unreachable(reason: str) -> None:
     pytest.skip(message)
 
 
+def weather_test_lock_name() -> str:
+    """Name of the server-side lock that serialises pytest sessions on the test schema."""
+    return f"skysnap_pytest:{os.getenv('TEST_WAREHOUSE_DB', 'weather_test')}"[:64]
+
+
+@pytest.fixture(scope="session")
+def weather_test_lock():
+    """Hold a MySQL lock for the whole session so two pytest processes never share weather_test.
+
+    The `db` fixture empties tables and the dashboard / reader suites seed them, so two runs at
+    once (two terminals, an editor plus a terminal, parallel agents) would corrupt each other's
+    data. The second session waits here (up to 10 minutes) instead of running concurrently.
+    The lock is tied to this connection, so it is released even if the session is killed.
+    """
+    test_host = os.getenv("TEST_WAREHOUSE_HOST", os.getenv("WAREHOUSE_HOST", "127.0.0.1"))
+    test_port = int(os.getenv("TEST_WAREHOUSE_PORT", "3307"))
+    test_db = os.getenv("TEST_WAREHOUSE_DB", "weather_test")
+    try:
+        conn = get_connection(host=test_host, port=test_port, database=test_db)
+    except Exception as exc:  # noqa: BLE001
+        mysql_unreachable(str(exc))
+    with conn.cursor() as cur:
+        cur.execute("SELECT GET_LOCK(%s, 600)", (weather_test_lock_name(),))
+        got = cur.fetchone()[0]
+    if got != 1:
+        conn.close()
+        pytest.fail("another pytest session has held the weather_test lock for 10 minutes")
+    yield
+    conn.close()  # releases the lock
+
+
 @pytest.fixture
-def db():
+def db(weather_test_lock):
     """Provide a clean database connection for each test.
 
     Uses TEST_WAREHOUSE_DB (default: weather_test) and TEST_WAREHOUSE_PORT (default: 3307).
@@ -50,7 +81,7 @@ def db():
         raise ValueError(f"Safety check failed: test database '{test_db}' must end with '_test'")
 
     test_port = int(os.getenv("TEST_WAREHOUSE_PORT", "3307"))
-    test_host = os.getenv("TEST_WAREHOUSE_HOST", os.getenv("WAREHOUSE_HOST", "localhost"))
+    test_host = os.getenv("TEST_WAREHOUSE_HOST", os.getenv("WAREHOUSE_HOST", "127.0.0.1"))
 
     try:
         conn = get_connection(

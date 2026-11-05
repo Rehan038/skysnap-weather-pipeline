@@ -1,8 +1,10 @@
 """Loading module — upserts weather data and rejects into MySQL."""
 
 import json
+import math
 import os
-from datetime import date, datetime
+from collections.abc import Iterable
+from datetime import date, datetime, time, timedelta
 
 import pymysql
 import pymysql.connections
@@ -42,30 +44,51 @@ def upsert_weather(
     conn: pymysql.connections.Connection,
     rows: list[dict],
     run_date: date,
+    cities: Iterable[str] | None = None,
 ) -> int:
-    """Upsert weather rows into weather_hourly.
+    """Replace the day's rows for the batch's cities, then upsert ``rows`` into weather_hourly.
+
+    Rows already stored for ``run_date`` and those cities are deleted first (in the caller's
+    transaction), so an hour that was good on an earlier run but is rejected now cannot
+    linger as a stale "good" row. Other days and other cities are never touched.
 
     Args:
         conn:     Open PyMySQL connection; caller owns the transaction.
         rows:     List of row dicts in the standard shape.
         run_date: The pipeline run date (data_interval_start.date()).
+        cities:   Cities whose rows for ``run_date`` are replaced; defaults to the cities
+                  present in ``rows``.
 
     Returns:
         Number of rows sent to executemany.
 
     Raises:
-        ValueError: If any row's city is not found in dim_city (before writing anything).
+        ValueError: If any city is not found in dim_city (before writing anything).
     """
-    if not rows:
+    scope = set(cities) if cities is not None else {r["city"] for r in rows}
+    if not rows and not scope:
         return 0
 
     city_map = _fetch_city_map(conn)
 
-    # Fail before writing anything if any city is unknown
-    for row in rows:
-        name = row["city"]
+    # Fail before writing or deleting anything if any city is unknown
+    for name in scope | {r["city"] for r in rows}:
         if name not in city_map:
             raise ValueError(f"unknown city: {name}")
+
+    if scope:
+        start = datetime.combine(run_date, time.min)
+        ids = sorted(city_map[name] for name in scope)
+        marks = ", ".join(["%s"] * len(ids))
+        delete_sql = (
+            "DELETE FROM weather_hourly WHERE observed_at >= %s AND observed_at < %s "  # nosec B608
+            f"AND city_id IN ({marks})"  # marks is only "%s, %s, ..."; ids are bound parameters
+        )
+        with conn.cursor() as cur:
+            cur.execute(delete_sql, (start, start + timedelta(days=1), *ids))
+
+    if not rows:
+        return 0
 
     sql = """
         INSERT INTO weather_hourly
@@ -98,6 +121,15 @@ def upsert_weather(
         cur.executemany(sql, params)
 
     return len(params)
+
+
+def _reject_json(row: dict) -> str:
+    """JSON for weather_rejects.raw_row: NaN/inf become strings (the JSON column refuses them)."""
+    safe = {
+        key: str(value) if isinstance(value, float) and not math.isfinite(value) else value
+        for key, value in row.items()
+    }
+    return json.dumps(safe, allow_nan=False, default=str)
 
 
 def insert_rejects(
@@ -135,7 +167,7 @@ def insert_rejects(
             observed_at = datetime.fromisoformat(row["observed_at"]) if row.get("observed_at") else None
         except (ValueError, TypeError):
             observed_at = None
-        params.append((city, observed_at, json.dumps(row), reject["reason"], run_date))
+        params.append((city, observed_at, _reject_json(row), reject["reason"], run_date))
 
     with conn.cursor() as cur:
         cur.executemany(sql, params)

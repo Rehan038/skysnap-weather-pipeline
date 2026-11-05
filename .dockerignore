@@ -10,4 +10,5 @@ docs
 .pytest_cache
 .ruff_cache
 .coverage
+backup_*.sql
 .superpowers

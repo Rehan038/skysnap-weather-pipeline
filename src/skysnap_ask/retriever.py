@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import math
 import re
 from pathlib import Path
 from typing import Protocol
@@ -13,6 +15,8 @@ import numpy as np
 from .knowledge import Chunk
 
 CONVENTIONS_ID = "schema:conventions"
+
+logger = logging.getLogger("skysnap_ask")
 
 
 class Embedder(Protocol):
@@ -43,27 +47,55 @@ class Retriever:
             data = json.loads(self._cache_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        # Keep only well-formed vectors; a damaged entry is just a cache miss.
+        return {k: v for k, v in data.items() if self._is_vector(v)}
+
+    @staticmethod
+    def _is_vector(value: object) -> bool:
+        return (
+            isinstance(value, list)
+            and len(value) > 0
+            and all(
+                isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+                for x in value
+            )
+        )
 
     def _save_cache(self, cache: dict[str, list[float]]) -> None:
         if self._cache_path is None:
             return
-        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
-        self._cache_path.write_text(json.dumps(cache), encoding="utf-8")
+        try:
+            self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+            self._cache_path.write_text(json.dumps(cache), encoding="utf-8")
+        except OSError as exc:
+            logger.warning("could not write the embedding cache (%s); continuing without it", exc)
 
     def _build_matrix(self) -> np.ndarray:
         cache = self._load_cache()
         keys = [self._key(c.text) for c in self._chunks]
+        # All vectors must share one dimension: keep the most common, re-embed the rest.
+        dims = [len(cache[k]) for k in keys if k in cache]
+        if dims:
+            common = max(set(dims), key=lambda d: (dims.count(d), d))
+            cache = {k: v for k, v in cache.items() if k not in keys or len(v) == common}
         missing = list(dict.fromkeys(k for k in keys if k not in cache))
         if missing:
-            text_by_key = {k: c.text for k, c in zip(keys, self._chunks)}
-            vectors = self._embedder.embed([text_by_key[k] for k in missing])
-            for k, v in zip(missing, vectors):
-                cache[k] = list(v)
+            self._embed_into(cache, keys, missing)
+            if len({len(cache[k]) for k in keys}) > 1:  # old and new dimensions differ
+                cache = {}
+                self._embed_into(cache, keys, list(dict.fromkeys(keys)))
             self._save_cache(cache)
         if not self._chunks:
             return np.zeros((0, 0))
         return self._normalise(np.array([cache[k] for k in keys], dtype=float))
+
+    def _embed_into(self, cache: dict, keys: list[str], wanted: list[str]) -> None:
+        text_by_key = {k: c.text for k, c in zip(keys, self._chunks)}
+        vectors = self._embedder.embed([text_by_key[k] for k in wanted])
+        for k, v in zip(wanted, vectors):
+            cache[k] = list(v)
 
     @staticmethod
     def _normalise(m: np.ndarray) -> np.ndarray:

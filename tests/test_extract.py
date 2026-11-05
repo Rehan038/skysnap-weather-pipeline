@@ -6,7 +6,7 @@ import pytest
 import responses as responses_lib
 
 from weather_etl.config import API_URL, HOURLY_VARS
-from weather_etl.extract import fetch_hourly
+from weather_etl.extract import PayloadError, fetch_hourly
 
 BENGALURU = {
     "name": "Bengaluru",
@@ -99,8 +99,8 @@ def test_error_payload_raises():
 
 
 @responses_lib.activate
-def test_missing_variable_becomes_none():
-    """A payload without the 'precipitation' key gives precipitation_mm = None."""
+def test_missing_variable_is_an_error():
+    """A payload without the 'precipitation' key is rejected whole (finding A-02)."""
     payload_no_precip = {
         "hourly": {
             "time": TIMES,
@@ -112,6 +112,6 @@ def test_missing_variable_becomes_none():
         }
     }
     responses_lib.add(responses_lib.GET, API_URL, json=payload_no_precip, status=200)
-    rows = fetch_hourly(BENGALURU, DAY)
-    assert all(r["precipitation_mm"] is None for r in rows)
+    with pytest.raises(PayloadError, match="precipitation"):
+        fetch_hourly(BENGALURU, DAY)
 

@@ -15,6 +15,13 @@ class LLMUnavailableError(RuntimeError):
     """Raised when Gemini keeps returning retryable errors."""
 
 
+def _non_empty(text: str | None) -> str:
+    """Gemini returns ``text=None`` for blocked or empty candidates; surface that cleanly."""
+    if text is None or not text.strip():
+        raise ValueError("empty response from the language model")
+    return text
+
+
 def make_client(api_key: str):
     return genai.Client(api_key=api_key)
 
@@ -76,10 +83,10 @@ class GeminiLLM:
                 model=self._model, contents=prompt, config=config
             )
         )
-        return json.loads(response.text)
+        return json.loads(_non_empty(response.text))
 
     def generate_text(self, prompt: str) -> str:
         response = self._call(
             lambda: self._client.models.generate_content(model=self._model, contents=prompt)
         )
-        return response.text
+        return _non_empty(response.text)

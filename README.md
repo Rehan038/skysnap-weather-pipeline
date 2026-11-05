@@ -45,7 +45,9 @@ cd skysnap-weather-pipeline
 
 # 2. Create the environment file
 cp .env.example .env
-# Edit .env and set MYSQL_ROOT_PASSWORD
+# Edit .env and fill in every empty password / secret: MYSQL_ROOT_PASSWORD, MYSQL_PASSWORD,
+# POSTGRES_PASSWORD, SKYSNAP_READER_PASSWORD, AIRFLOW__API_AUTH__JWT_SECRET.
+# There are no built-in defaults: docker compose refuses to start while one is missing.
 
 # 3. Build and start the full stack
 docker compose up -d --build
@@ -57,6 +59,12 @@ open http://localhost:8080
 # 5. Unpause the DAG in the UI — catchup runs will start from 2026-10-01
 ```
 
+> **Network exposure:** every published port (Airflow `8080`, Streamlit `8501`, MySQL `3307`) is bound to `127.0.0.1`, so the stack is reachable only from the machine running it. Airflow has no login and the Streamlit app can spend Gemini quota, so do not publish them on `0.0.0.0` or a shared network without adding authentication.
+>
+> **Database accounts:** `weather` (the pipeline) has only `SELECT, INSERT, UPDATE, DELETE` on the `weather` schema (`sql/03-pipeline-grants.sh`; it keeps `ALL` on `weather_test` for the test-suite). `skysnap_reader` (used by Ask SkySnap and the Dashboard) has `SELECT` on only `dim_city`, `weather_hourly` and `weather_rejects`, and at most 10 concurrent connections (`sql/02-reader-user.sh`, which also re-applies the password, so it can be rotated). To apply either script to an existing warehouse volume: `docker compose exec warehouse sh /docker-entrypoint-initdb.d/02-reader-user.sh` and `docker compose exec warehouse sh /docker-entrypoint-initdb.d/03-pipeline-grants.sh`.
+>
+> **Existing volumes:** an existing MySQL/Postgres volume keeps the passwords it was created with, so set `MYSQL_PASSWORD` and `POSTGRES_PASSWORD` in `.env` to those old values (or recreate the volumes, which deletes the data).
+>
 > **Note:** `AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"` is set for local development only. For production deployments, configure proper authentication. See [Airflow security docs](https://airflow.apache.org/docs/apache-airflow/stable/security/index.html).
 
 ---
@@ -328,6 +336,31 @@ CI runs the first two tiers with no Gemini calls (`ask` job, coverage gate 85%).
 
 Each task retries 3 times with exponential backoff (`retry_delay` 2 minutes, doubling per attempt). This was verified inside Airflow, not just in Python: with the API URL pointed at a dead address, all 5 per-city `extract` tasks failed with `Connection refused`, retried 3 more times (gaps of roughly 5, 13 and 27 minutes in the observed run, because Airflow adds jitter to the backoff), then ended `failed`; `validate` and `load` became `upstream_failed`. The failed run wrote nothing, and the previously loaded rows (24 per city for 2026-10-10) were unchanged. After restoring the real URL and clearing the run, it finished `success` with the same 24 rows per city.
 
+## Dashboard
+
+The Streamlit app at http://localhost:8501 has two pages in its sidebar: **Ask SkySnap** and **Dashboard**. The Dashboard is plain analytics over the warehouse: fixed, parameterised SQL run as the read-only `skysnap_reader` account, no LLM and no user-written SQL.
+
+**Pipeline health (top of the page)**
+- Tiles: latest date loaded, data age in days, total rows and rejected rows.
+- Freshness colour: age 0-1 days is green, 2-3 amber, more than 3 red (no data is red). The pipeline loads the previous day at 06:00 IST, so before that run each day the age is measured from yesterday (on-schedule data stays green overnight). The tile always shows the plain age against today's date in India (`Asia/Kolkata`).
+- Rows loaded per day (one bar per day with a reference line at 120 = 5 cities x 24 hours) and rejected rows by reason, or "No rejected rows".
+
+**Charts** (all respect the sidebar filters)
+1. Daily maximum (solid) and minimum (dashed) temperature per city.
+2. Daily rainfall per city, as grouped bars.
+3. Average temperature by hour of day (0-23) per city.
+4. Humidity distribution per city, as a box plot of the hourly values.
+
+**Filters:** city multi-select (all five by default) and a date range (the last 30 days of available data by default, limited to the dates in the database). The sidebar also shows when data was last loaded. Results are cached for 10 minutes.
+
+<!-- SCREENSHOT_PLACEHOLDER: docs/img/dashboard.png (the Dashboard page with the health panel and charts) -->
+
+How it is built: `src/skysnap_dash/` holds the query builders (`%s` placeholders with a fixed city allow-list), the data source, the chart builders and the freshness rules; `app/dashboard_page.py` is layout only. Tests use fakes for the UI and seeded `weather_test` data for the SQL, and CI runs them with the same 85% coverage gate as Ask SkySnap.
+
+Dashboard limitations: values are modelled grid data, not station readings; the page is a snapshot cached for 10 minutes with no auto-refresh; "Data last loaded" shows the latest observed day, because the pipeline stores the day it loaded and not a wall-clock load time; the humidity box plot loads up to 50,000 hourly values and warns if a range hits that cap.
+
+---
+
 ## Design Decisions
 
 | Decision | Rationale |
@@ -336,6 +369,9 @@ Each task retries 3 times with exponential backoff (`retry_delay` 2 minutes, dou
 | LocalExecutor | Simplifies local development — no Redis/Celery needed |
 | `ON DUPLICATE KEY UPDATE` | Idempotent upserts make re-runs safe without extra deduplication logic |
 | `DELETE + INSERT` for rejects | Rejects are replaced per `run_date` so re-runs don't accumulate duplicates |
+| Replace the day on re-run | The load deletes the day's rows for the batch's cities before upserting, so an hour that was good once but is rejected now cannot linger as a stale "good" row |
+| Strict payloads | A response that is not exactly 24 unique, aligned hourly values per city fails the run (and is retried) instead of loading a partial day; every city must be present before load |
+| Value limits | Temperature -10..55 degC, humidity 0..100 %, precipitation 0..400 mm/h, wind 0..400 km/h (all far beyond real readings); NaN and infinity are rejected explicitly |
 | `src` layout | Keeps `weather_etl` importable by pytest and the DAG without Airflow in the path |
 | `weather_code` nullable | It's a WMO label, not a measurement — missing values are acceptable |
 
@@ -347,7 +383,8 @@ Each task retries 3 times with exponential backoff (`retry_delay` 2 minutes, dou
 - **Gridded model data, not station readings:** Temperatures and precipitation are interpolated from weather models, not measured at a physical station — they may differ from local observations.
 - **`SIMPLE_AUTH_MANAGER_ALL_ADMINS`:** This setting grants all users admin access and is suitable for local development only. Do not use in production.
 
-- **Airflow JWT secret:** The default `AIRFLOW__API_AUTH__JWT_SECRET` in `docker-compose.yml` is a local-development placeholder. Override it (via `.env`) in any real deployment.
+- **Ask SkySnap input limits:** questions are capped at 1,000 characters and generated SQL at 10,000 characters (both checked before anything expensive runs). The model may only call an allow-listed set of SQL functions (aggregates, date/time, rounding, conditionals, CAST, CONCAT/LOWER/UPPER); anything else is refused.
+- **Airflow JWT secret:** `AIRFLOW__API_AUTH__JWT_SECRET` is required in `.env` (no default). Use a long random value.
 
 ---
 
