@@ -6,6 +6,7 @@ import pytest
 from skysnap_dash.health import (
     EXPECTED_ROWS_PER_DAY,
     Freshness,
+    describe_age,
     freshness,
     ist_today,
     pipeline_has_run,
@@ -106,3 +107,11 @@ def test_the_displayed_age_is_always_the_plain_age():
     """The grace only affects the colour; the tile still shows today minus the latest day."""
     result = freshness(date(2026, 11, 3), date(2026, 11, 5), run_done=False)
     assert (result.status, result.age_days) == ("green", 2)
+
+
+@pytest.mark.parametrize(
+    ("days", "text"),
+    [(0, "today"), (1, "1 day ago"), (2, "2 days ago"), (10, "10 days ago")],
+)
+def test_describe_age_uses_correct_singular_and_plural(days, text):
+    assert describe_age(days) == text

@@ -76,6 +76,26 @@ def test_two_day_old_data_before_the_morning_run_is_green():
     assert any(m.value == "2" for m in at.metric)  # the tile still shows the plain age
 
 
+def test_sidebar_caption_says_1_day_ago_not_1_days_ago():
+    at, _ = run()  # latest loaded day is 2026-10-31, today 2026-11-01 -> age 1
+    captions = [c.value for c in at.sidebar.caption]
+    assert any("through 2026-10-31 (1 day ago)" in c for c in captions)
+    assert not any("1 days ago" in c for c in captions)
+
+
+def test_date_tile_is_wider_than_the_number_tiles_so_the_date_is_not_truncated():
+    """'2026-11-04' is cut to '2026-11-...' in a quarter-width tile at normal window sizes."""
+    at, _ = run()
+    weights = [c.proto.weight for c in at.columns[:4]]
+    assert weights[0] > weights[1] and weights[1] == weights[2] == weights[3]
+    assert [m.label for m in at.metric][:4] == [
+        "Latest date loaded",
+        "Data age (days)",
+        "Total rows",
+        "Rejected rows",
+    ]
+
+
 def test_stale_data_shows_red_label():
     at, _ = run(today=date(2026, 11, 5))
     assert any(":red[Stale]" in t for t in texts(at))

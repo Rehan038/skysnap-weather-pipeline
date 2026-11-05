@@ -8,7 +8,7 @@ from skysnap_ask.db import QueryError, user_message
 from skysnap_dash import charts, filters
 from skysnap_dash.config import load_dash_settings
 from skysnap_dash.data import MySQLDataSource, hit_cap
-from skysnap_dash.health import freshness, ist_today, pipeline_has_run
+from skysnap_dash.health import describe_age, freshness, ist_today, pipeline_has_run
 from skysnap_dash.queries import AGG_CAP, CITIES, HOURLY_CAP
 
 _STATUS_COLOUR = {"green": "green", "amber": "orange", "red": "red"}
@@ -67,7 +67,7 @@ except QueryError as exc:
 selected_cities = st.sidebar.multiselect("Cities", list(CITIES), default=list(CITIES))
 
 fresh = freshness(health.latest_day, today, run_done)
-cols = st.columns(4)
+cols = st.columns([1.6, 1, 1, 1])  # the date tile needs more room than the numbers
 cols[0].metric("Latest date loaded", str(health.latest_day) if health.latest_day else "n/a")
 cols[1].metric("Data age (days)", fresh.age_days if fresh.age_days is not None else "n/a")
 cols[2].metric("Total rows", f"{health.total_rows:,}")
@@ -79,7 +79,7 @@ if health.latest_day is None or min_day is None or max_day is None:
     st.stop()
 
 st.sidebar.caption(
-    f"Data last loaded: through {health.latest_day} ({fresh.age_days} days ago)"
+    f"Data last loaded: through {health.latest_day} ({describe_age(fresh.age_days)})"
 )
 picked = st.sidebar.date_input(
     "Date range",

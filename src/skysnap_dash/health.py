@@ -25,6 +25,13 @@ def ist_today(now: datetime | None = None) -> date:
     return moment.astimezone(_IST).date()
 
 
+def describe_age(days: int) -> str:
+    """'today', '1 day ago', '2 days ago' (correct singular and plural)."""
+    if days <= 0:
+        return "today"
+    return "1 day ago" if days == 1 else f"{days} days ago"
+
+
 def pipeline_has_run(now: datetime | None = None) -> bool:
     """True once today's scheduled run (06:00 IST) is due, so yesterday's data should be loaded."""
     moment = now if now is not None else datetime.now(_IST)
