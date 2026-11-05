@@ -58,7 +58,9 @@ def weather_etl():
 
         conn = get_connection()
         try:
-            n_good = upsert_weather(conn, good, run_date)
+            cities = {r["city"] for r in good} | {rj["row"].get("city") for rj in rejects}
+            cities.discard(None)
+            n_good = upsert_weather(conn, good, run_date, cities=cities)
             n_rejects = insert_rejects(conn, rejects, run_date)
             conn.commit()
             log.info("Loaded %d weather rows and %d rejects for %s", n_good, n_rejects, run_date)

@@ -1,14 +1,17 @@
 """Row validation for the Weather ETL pipeline."""
 
 import datetime
+import math
 
 from weather_etl.config import (
     HOURS_PER_DAY,
     HUMIDITY_MAX,
     HUMIDITY_MIN,
+    PRECIP_MAX,
     REJECT_THRESHOLD,
     TEMP_MAX,
     TEMP_MIN,
+    WIND_MAX,
 )
 
 MEASURED_FIELDS = ("temperature_c", "humidity_pct", "precipitation_mm", "wind_kmh")
@@ -26,10 +29,11 @@ def split_rows(rows: list[dict]) -> tuple[list[dict], list[dict]]:
       0. malformed observed_at → "invalid observed_at" (load would fail on it)
       1. null measured field   → "null <field>"
       1b. non-numeric measured field → "non-numeric <field>"
+      1c. NaN or +-inf in a measured field → "non-finite <field>"
       2. temperature out of range → "temperature_c out of range"
       3. humidity out of range → "humidity_pct out of range"
-      4. negative precipitation → "negative precipitation_mm"
-      5. negative wind         → "negative wind_kmh"
+      4. negative precipitation → "negative precipitation_mm"; above PRECIP_MAX → out of range
+      5. negative wind         → "negative wind_kmh"; above WIND_MAX → out of range
     weather_code is nullable and is never a reason for rejection.
     """
     good: list[dict] = []
@@ -62,6 +66,11 @@ def _validate_row(row: dict) -> str | None:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return f"non-numeric {field}"
 
+    # Rule 1c: NaN/inf compare False against every limit, so they need an explicit rule
+    for field in MEASURED_FIELDS:
+        if not math.isfinite(row[field]):
+            return f"non-finite {field}"
+
     # Rule 2: temperature range
     temp = row["temperature_c"]
     if not (TEMP_MIN <= temp <= TEMP_MAX):
@@ -75,10 +84,14 @@ def _validate_row(row: dict) -> str | None:
     # Rule 4: negative precipitation
     if row["precipitation_mm"] < 0:
         return "negative precipitation_mm"
+    if row["precipitation_mm"] > PRECIP_MAX:
+        return "precipitation_mm out of range"
 
     # Rule 5: negative wind
     if row["wind_kmh"] < 0:
         return "negative wind_kmh"
+    if row["wind_kmh"] > WIND_MAX:
+        return "wind_kmh out of range"
 
     return None
 

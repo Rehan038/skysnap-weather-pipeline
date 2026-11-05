@@ -27,6 +27,10 @@ TEMP_MIN = -10.0
 TEMP_MAX = 55.0
 HUMIDITY_MIN = 0.0
 HUMIDITY_MAX = 100.0
+# Upper bounds for precipitation and wind. Both columns are DECIMAL(6,2), so an unbounded
+# value could abort the whole day's load; these are far above any physical reading.
+PRECIP_MAX = 400.0  # mm per hour (record rainfall rates are ~300 mm/h)
+WIND_MAX = 400.0  # km/h (strongest recorded surface gust is ~408 km/h)
 
 REJECT_THRESHOLD = 0.10
 

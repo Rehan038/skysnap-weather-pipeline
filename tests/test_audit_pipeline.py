@@ -178,11 +178,12 @@ def full_day(day=DAY):
 finite = {"allow_nan": False, "allow_infinity": False}
 temps = st.floats(config.TEMP_MIN, config.TEMP_MAX, **finite)
 hums = st.floats(config.HUMIDITY_MIN, config.HUMIDITY_MAX, **finite)
-nonneg = st.floats(0.0, 1e4, **finite)
+precips = st.floats(0.0, config.PRECIP_MAX, **finite)
+winds = st.floats(0.0, config.WIND_MAX, **finite)
 
 
 @settings(max_examples=200, deadline=None)
-@given(t=temps, h=hums, p=nonneg, w=nonneg, code=st.one_of(st.none(), st.integers(0, 99)))
+@given(t=temps, h=hums, p=precips, w=winds, code=st.one_of(st.none(), st.integers(0, 99)))
 def test_in_limit_rows_always_accepted(t, h, p, w, code):
     row = good_row(temperature_c=t, humidity_pct=h, precipitation_mm=p, wind_kmh=w,
                    weather_code=code)
@@ -283,19 +284,18 @@ NONFINITE = [float("nan"), float("inf"), float("-inf")]
 @pytest.mark.parametrize("bad", NONFINITE, ids=["nan", "inf", "-inf"])
 @pytest.mark.parametrize("field", ["temperature_c", "humidity_pct"])
 def test_nonfinite_in_ranged_fields_rejected(field, bad):
-    """NaN/inf compare False against the range, so these are rejected today."""
+    """NaN and +-inf are rejected with an explicit non-finite reason (finding A-01)."""
     good, rejects = split_rows([good_row(**{field: bad})])
     assert good == []
-    assert rejects[0]["reason"] == f"{field} out of range"
+    assert rejects[0]["reason"] == f"non-finite {field}"
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-01")
 @pytest.mark.parametrize("bad", [float("nan"), float("inf")], ids=["nan", "inf"])
 @pytest.mark.parametrize("field", ["precipitation_mm", "wind_kmh"])
 def test_nonfinite_in_precip_and_wind_must_be_rejected(field, bad):
     """`x < 0` is False for NaN/+inf, so they are accepted into the 'good' set."""
     good, rejects = split_rows([good_row(**{field: bad})])
-    assert good == [] and len(rejects) == 1
+    assert good == [] and rejects[0]["reason"] == f"non-finite {field}"
 
 
 @pytest.mark.parametrize("field", ["precipitation_mm", "wind_kmh"])
@@ -594,7 +594,6 @@ def test_rejects_of_other_run_dates_are_preserved(db, monkeypatch):
     assert _count(db, "SELECT COUNT(*) FROM weather_rejects") == 2
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-03")
 def test_rerun_where_hour_becomes_invalid_removes_stale_good_row(db, monkeypatch):
     """Run 1 loads hour 5 as good; run 2 (same day) rejects it. It must not stay in
     weather_hourly as if it were valid."""
@@ -606,6 +605,108 @@ def test_rerun_where_hour_becomes_invalid_removes_stale_good_row(db, monkeypatch
     good2, rejects2 = split_rows(rows2)
     run_load_task(db, monkeypatch, good2, rejects2)
     assert _count(db, "SELECT COUNT(*) FROM weather_hourly") == 119
+
+
+# --- A-04: documented upper bounds for precipitation and wind --------------------------
+
+
+def test_precip_and_wind_limits_are_documented_constants():
+    assert config.PRECIP_MAX == 400.0  # mm per hour: far above any recorded rainfall rate
+    assert config.WIND_MAX == 400.0  # km/h: above the strongest recorded surface gust
+
+
+@pytest.mark.parametrize(("field", "limit"), [("precipitation_mm", 400.0), ("wind_kmh", 400.0)])
+def test_precip_and_wind_boundary_is_inclusive(field, limit):
+    good, rejects = split_rows([good_row(**{field: limit})])
+    assert len(good) == 1 and rejects == []
+    good, rejects = split_rows([good_row(**{field: limit + 0.01})])
+    assert good == [] and rejects[0]["reason"] == f"{field} out of range"
+
+
+def test_negative_values_keep_their_own_reason():
+    _good, rejects = split_rows([good_row(precipitation_mm=-0.1)])
+    assert rejects[0]["reason"] == "negative precipitation_mm"
+
+
+# --- A-01: non-finite values can be stored as rejects ----------------------------------
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")], ids=["nan", "inf", "-inf"])
+def test_non_finite_rejects_round_trip_through_the_json_column(db, bad):
+    import json
+
+    row = good_row(precipitation_mm=bad)
+    _good, rejects = split_rows([row])
+    insert_rejects(db, rejects, DAY)
+    db.commit()
+    with db.cursor() as cur:
+        cur.execute("SELECT raw_row, reason FROM weather_rejects")
+        raw, reason = cur.fetchone()
+    stored = json.loads(raw) if isinstance(raw, str) else raw
+    assert reason == "non-finite precipitation_mm"
+    assert stored["precipitation_mm"] == str(bad)
+
+
+def test_reject_payload_with_unserialisable_value_does_not_crash(db):
+    import datetime as dt
+
+    row = good_row(temperature_c=999.0, extra=dt.date(2026, 10, 1))
+    _good, rejects = split_rows([row])
+    assert insert_rejects(db, rejects, DAY) == 1
+
+
+# --- A-03: a rerun replaces the day's rows for the batch's cities ----------------------
+
+
+def _shift(rows, day):
+    return [{**r, "observed_at": r["observed_at"].replace(DAY.isoformat(), day.isoformat())} for r in rows]
+
+
+def test_rerun_leaves_other_days_untouched(db, monkeypatch):
+    nxt = DAY + timedelta(days=1)
+    good_next, rej_next = split_rows(_shift(full_day(), nxt))
+    run_load_task(db, monkeypatch, good_next, rej_next, run_date=nxt)
+    good, rejects = split_rows(full_day())
+    run_load_task(db, monkeypatch, good, rejects)
+    rows2 = full_day()
+    rows2[5]["temperature_c"] = 99.0
+    good2, rejects2 = split_rows(rows2)
+    run_load_task(db, monkeypatch, good2, rejects2)
+    nxt_sql = f"SELECT COUNT(*) FROM weather_hourly WHERE DATE(observed_at) = '{nxt.isoformat()}'"
+    day_sql = f"SELECT COUNT(*) FROM weather_hourly WHERE DATE(observed_at) = '{DAY.isoformat()}'"
+    assert _count(db, nxt_sql) == 120
+    assert _count(db, day_sql) == 119
+
+
+def test_upsert_only_clears_the_cities_in_the_batch(db):
+    good, _ = split_rows(full_day())
+    upsert_weather(db, good, DAY)
+    db.commit()
+    kolkata = CITIES[-1]["name"]
+    partial = [r for r in good if r["city"] != kolkata]
+    upsert_weather(db, partial, DAY)
+    db.commit()
+    assert _count(db, "SELECT COUNT(*) FROM weather_hourly") == 120  # Kolkata's rows kept
+
+
+def test_upsert_with_explicit_cities_clears_a_city_whose_rows_all_became_rejects(db):
+    good, _ = split_rows(full_day())
+    upsert_weather(db, good, DAY)
+    db.commit()
+    kolkata = CITIES[-1]["name"]
+    remaining = [r for r in good if r["city"] != kolkata]
+    upsert_weather(db, remaining, DAY, cities=[c["name"] for c in CITIES])
+    db.commit()
+    assert _count(db, "SELECT COUNT(*) FROM weather_hourly") == 96
+
+
+def test_unknown_city_in_scope_writes_and_deletes_nothing(db):
+    good, _ = split_rows(full_day())
+    upsert_weather(db, good, DAY)
+    db.commit()
+    with pytest.raises(ValueError, match="unknown city"):
+        upsert_weather(db, [], DAY, cities=["Atlantis"])
+    assert _count(db, "SELECT COUNT(*) FROM weather_hourly") == 120
 
 
 def test_failure_after_upsert_rolls_everything_back(db, monkeypatch):
@@ -644,7 +745,6 @@ def test_unknown_city_midbatch_writes_nothing(db):
     assert _count(db, "SELECT COUNT(*) FROM weather_hourly") == 0
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-01")
 def test_rejected_nan_row_can_be_stored_in_reject_table(db):
     """A NaN reading is rejected by validation; insert_rejects must then be able to store it
     (json.dumps emits the invalid-JSON token NaN, which the JSON column refuses)."""
@@ -656,7 +756,6 @@ def test_rejected_nan_row_can_be_stored_in_reject_table(db):
     assert _count(db, "SELECT COUNT(*) FROM weather_rejects") == 1
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING A-04")
 @pytest.mark.parametrize("field", ["precipitation_mm", "wind_kmh"])
 def test_absurd_precip_or_wind_is_rejected_not_a_load_crash(field):
     """Columns are DECIMAL(6,2) (max 9999.99) but validation has no upper bound: a bad value

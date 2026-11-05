@@ -290,6 +290,9 @@ Dashboard limitations: values are modelled grid data, not station readings; the 
 | LocalExecutor | Simplifies local development — no Redis/Celery needed |
 | `ON DUPLICATE KEY UPDATE` | Idempotent upserts make re-runs safe without extra deduplication logic |
 | `DELETE + INSERT` for rejects | Rejects are replaced per `run_date` so re-runs don't accumulate duplicates |
+| Replace the day on re-run | The load deletes the day's rows for the batch's cities before upserting, so an hour that was good once but is rejected now cannot linger as a stale "good" row |
+| Strict payloads | A response that is not exactly 24 unique, aligned hourly values per city fails the run (and is retried) instead of loading a partial day; every city must be present before load |
+| Value limits | Temperature -10..55 degC, humidity 0..100 %, precipitation 0..400 mm/h, wind 0..400 km/h (all far beyond real readings); NaN and infinity are rejected explicitly |
 | `src` layout | Keeps `weather_etl` importable by pytest and the DAG without Airflow in the path |
 | `weather_code` nullable | It's a WMO label, not a measurement — missing values are acceptable |
 
