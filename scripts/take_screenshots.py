@@ -1,6 +1,6 @@
 """Take the README screenshots of the running app (headless Chromium via Playwright).
 
-    python scripts/take_screenshots.py --dashboard
+    python scripts/take_screenshots.py --dashboard --dashboard-hero
     python scripts/take_screenshots.py --ask-answer --ask-refusal     # spends Gemini calls
 
 The app must be running (docker compose up -d ask) at http://127.0.0.1:8501. Each shot waits
@@ -39,10 +39,14 @@ class Shot:
     question: str | None
     kind: str  # "dashboard" | "answer" | "refusal"
     uses_gemini: bool
+    viewport_only: bool = False  # True: one viewport (1440x900), not the whole page
 
 
 SHOTS: dict[str, Shot] = {
     "dashboard": Shot(Path("docs/img/dashboard.png"), "/dashboard", None, "dashboard", False),
+    "dashboard_hero": Shot(
+        Path("docs/img/dashboard-hero.png"), "/dashboard", None, "dashboard", False, True
+    ),
     "ask_answer": Shot(Path("docs/img/ask-answer.png"), "/", ASK_ANSWER_QUESTION, "answer", True),
     "ask_refusal": Shot(
         Path("docs/img/ask-refusal.png"), "/", ASK_REFUSAL_QUESTION, "refusal", True
@@ -70,6 +74,11 @@ class ScreenshotError(RuntimeError):
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Take README screenshots of the running app.")
     parser.add_argument("--dashboard", action="store_true", help="docs/img/dashboard.png")
+    parser.add_argument(
+        "--dashboard-hero",
+        action="store_true",
+        help="docs/img/dashboard-hero.png (top of the dashboard, one viewport)",
+    )
     parser.add_argument(
         "--ask-answer", action="store_true", help="docs/img/ask-answer.png (spends Gemini calls)"
     )
@@ -205,9 +214,10 @@ def take(page, base_url: str, shot: Shot) -> Path:
             raise ScreenshotError("the page shows an exception")
     else:
         _ask(page, shot)
-    _fit_to_content(page, charts)
+    if not shot.viewport_only:
+        _fit_to_content(page, charts)
     shot.path.parent.mkdir(parents=True, exist_ok=True)
-    page.screenshot(path=str(shot.path), full_page=True)
+    page.screenshot(path=str(shot.path), full_page=not shot.viewport_only)
     return shot.path
 
 

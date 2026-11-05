@@ -138,3 +138,56 @@ def test_main_refuses_to_run_without_a_reachable_app(monkeypatch, capsys):
     monkeypatch.setattr(ts, "app_is_up", lambda url: False)
     assert ts.main(["--ask-answer", "--base-url", "http://127.0.0.1:1"]) == 1
     assert "not reachable" in capsys.readouterr().err
+
+
+# ---- --dashboard-hero: a viewport-only shot of the top of the dashboard -------------------
+
+
+def test_hero_flag_selects_the_hero_shot():
+    assert ts.parse_args(["--dashboard-hero"]).shots == ["dashboard_hero"]
+    assert ts.parse_args(["--dashboard", "--dashboard-hero"]).shots == [
+        "dashboard",
+        "dashboard_hero",
+    ]
+
+
+def test_hero_shot_is_the_dashboard_page_without_gemini_and_not_full_page():
+    hero = ts.SHOTS["dashboard_hero"]
+    assert hero.path == Path("docs/img/dashboard-hero.png")
+    assert hero.route == "/dashboard"
+    assert hero.kind == "dashboard"
+    assert hero.uses_gemini is False
+    assert hero.viewport_only is True
+
+
+def test_only_the_hero_is_viewport_only():
+    assert [name for name, shot in ts.SHOTS.items() if shot.viewport_only] == ["dashboard_hero"]
+
+
+def _png_size(path: Path) -> tuple[int, int]:
+    import struct
+
+    header = path.read_bytes()[:24]
+    assert header[:8] == b"\x89PNG\r\n\x1a\n"
+    return struct.unpack(">II", header[16:24])
+
+
+def test_committed_hero_image_is_exactly_one_viewport_at_2x():
+    assert _png_size(ROOT / "docs" / "img" / "dashboard-hero.png") == (2880, 1800)
+
+
+def test_committed_full_page_dashboard_image_is_2x_wide_and_taller_than_the_hero():
+    width, height = _png_size(ROOT / "docs" / "img" / "dashboard.png")
+    assert width == 2880 and height > 1800
+
+
+def test_readme_images_exist_and_the_dashboard_shows_the_hero_with_a_full_page_link():
+    import re
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for target in re.findall(r"\]\((docs/img/[^)]+)\)", readme):
+        assert (ROOT / target).exists(), target
+    assert "](docs/img/dashboard-hero.png)" in readme
+    assert "[Full page](docs/img/dashboard.png)" in readme
+    assert readme.index("dashboard-hero.png") < readme.index("[Full page]")
+    assert "SCREENSHOT_PLACEHOLDER: docs/img/dashboard.png" not in readme

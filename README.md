@@ -360,7 +360,9 @@ The Streamlit app at http://localhost:8501 has two pages in its sidebar: **Ask S
 
 **Filters:** city multi-select (all five by default) and a date range (the last 30 days of available data by default, limited to the dates in the database). The sidebar also shows when data was last loaded. Results are cached for 10 minutes.
 
-<!-- SCREENSHOT_PLACEHOLDER: docs/img/dashboard.png (the Dashboard page with the health panel and charts) -->
+![SkySnap Dashboard: pipeline health tiles and rows loaded per day](docs/img/dashboard-hero.png)
+
+[Full page](docs/img/dashboard.png)
 
 How it is built: `src/skysnap_dash/` holds the query builders (`%s` placeholders with a fixed city allow-list), the data source, the chart builders and the freshness rules; `app/dashboard_page.py` is layout only. Tests use fakes for the UI and seeded `weather_test` data for the SQL, and CI runs them with the same 85% coverage gate as Ask SkySnap.
 
