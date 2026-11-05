@@ -6,3 +6,4 @@ ruff>=0.4.0
 hypothesis>=6.100
 bandit>=1.7
 pip-audit>=2.7
+playwright>=1.45
