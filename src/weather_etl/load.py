@@ -81,8 +81,8 @@ def upsert_weather(
         ids = sorted(city_map[name] for name in scope)
         marks = ", ".join(["%s"] * len(ids))
         delete_sql = (
-            "DELETE FROM weather_hourly WHERE observed_at >= %s AND observed_at < %s "
-            f"AND city_id IN ({marks})"  # only %s placeholders are interpolated  # nosec B608
+            "DELETE FROM weather_hourly WHERE observed_at >= %s AND observed_at < %s "  # nosec B608
+            f"AND city_id IN ({marks})"  # marks is only "%s, %s, ..."; ids are bound parameters
         )
         with conn.cursor() as cur:
             cur.execute(delete_sql, (start, start + timedelta(days=1), *ids))
