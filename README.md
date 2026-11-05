@@ -263,7 +263,7 @@ The Streamlit app at http://localhost:8501 has two pages in its sidebar: **Ask S
 
 **Pipeline health (top of the page)**
 - Tiles: latest date loaded, data age in days, total rows and rejected rows.
-- Freshness colour: age 0-1 days is green, 2-3 amber, more than 3 red (no data is red). Age is measured against today's date in India (`Asia/Kolkata`).
+- Freshness colour: the pipeline runs at 06:00 IST and loads the previous day, so data that is 1 day old (or 2 days old before that morning's run) is on schedule. Age 0-2 days is green, 3-4 amber, 5 or more red (no data is red). The tile shows the plain age against today's date in India (`Asia/Kolkata`).
 - Rows loaded per day (one bar per day with a reference line at 120 = 5 cities x 24 hours) and rejected rows by reason, or "No rejected rows".
 
 **Charts** (all respect the sidebar filters)

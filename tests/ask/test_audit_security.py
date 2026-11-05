@@ -18,6 +18,7 @@ from skysnap_ask.db import QueryError, QueryResult, run_readonly
 from skysnap_ask.guard import guard_sql
 from skysnap_ask.knowledge import Chunk
 from skysnap_ask.service import AskResult, AskService
+from skysnap_ask.text import escape_markdown
 
 from .fakes import FakeLLM, FakeRetriever, FakeService
 
@@ -358,7 +359,8 @@ def test_html_in_llm_text_is_rendered_inert(status):
     for proto in all_protos(at):
         assert not getattr(proto, "allow_html", False)
     shown = {"answered": at.success, "refused": at.info, "failed": at.error}[status]
-    assert shown[0].value == HTML_PAYLOAD  # passed as data to a non-HTML element
+    # shown as escaped literal text, passed as data to a non-HTML element
+    assert shown[0].value == escape_markdown(HTML_PAYLOAD)
 
 
 def test_html_in_result_table_and_sql_is_inert():
@@ -375,7 +377,6 @@ def test_html_in_result_table_and_sql_is_inert():
     assert len(at.dataframe) == 1  # st.dataframe: cell text, never HTML
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING S-06: LLM text rendered as markdown (links/images)")
 @pytest.mark.parametrize("status", ["answered", "refused"])
 def test_markdown_links_and_images_in_llm_text_are_neutralised(status):
     result = AskResult(question="q", status=status, answer=MD_PAYLOAD, sql="SELECT 1")

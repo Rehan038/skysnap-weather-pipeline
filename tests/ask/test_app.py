@@ -7,6 +7,7 @@ from streamlit.testing.v1 import AppTest
 
 from skysnap_ask.knowledge import Chunk
 from skysnap_ask.service import AskResult
+from skysnap_ask.text import escape_markdown
 
 from .fakes import FakeService
 
@@ -51,7 +52,7 @@ def test_answered_shows_answer_sql_and_table():
     assert "2026-10-01" in at.caption[0].value and "Bengaluru" in at.caption[0].value
     ask(at, "Which city?")
     assert service.asked == ["Which city?"]
-    assert at.success[0].value == "Mumbai had the most rain."
+    assert at.success[0].value == escape_markdown("Mumbai had the most rain.")
     assert at.code[0].value == "SELECT name, v FROM dim_city"
     assert len(at.dataframe) == 1
     assert list(at.dataframe[0].value["name"]) == ["Mumbai", "Delhi"]
@@ -77,7 +78,7 @@ def test_refused_shows_info():
     result = AskResult(question="q", status="refused", answer="Out of scope.")
     at, _ = run_app(result)
     ask(at, "Infosys price?")
-    assert at.info[0].value == "Out of scope."
+    assert at.info[0].value == escape_markdown("Out of scope.")
     assert not at.success
     assert not at.error
 
@@ -88,7 +89,7 @@ def test_failed_shows_error():
     )
     at, _ = run_app(result)
     ask(at, "Delete it")
-    assert at.error[0].value == "Blocked: not allowed"
+    assert at.error[0].value == escape_markdown("Blocked: not allowed")
     assert at.code[0].value == "DELETE FROM x"
 
 

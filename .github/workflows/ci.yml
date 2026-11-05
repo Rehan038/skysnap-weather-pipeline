@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+# The workflow only reads the repository; no job needs a write token or any secret.
+permissions:
+  contents: read
+
 jobs:
   pipeline:
     runs-on: ubuntu-latest

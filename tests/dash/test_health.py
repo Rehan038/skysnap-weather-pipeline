@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -12,9 +13,10 @@ LATEST = date(2026, 11, 2)
     [
         (0, "green", "Up to date"),
         (1, "green", "Up to date"),
-        (2, "amber", "Slightly behind"),
+        (2, "green", "Up to date"),  # the run that loads yesterday has not happened yet
         (3, "amber", "Slightly behind"),
-        (4, "red", "Stale"),
+        (4, "amber", "Slightly behind"),
+        (5, "red", "Stale"),
         (10, "red", "Stale"),
     ],
 )
@@ -45,3 +47,23 @@ def test_ist_today_defaults_to_current_time():
 
 def test_expected_rows_is_120():
     assert EXPECTED_ROWS_PER_DAY == 120
+
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+@pytest.mark.parametrize(
+    ("moment", "latest", "status"),
+    [
+        # The DAG fires 00:30 UTC = 06:00 IST and loads the previous day.
+        (datetime(2026, 11, 5, 3, 0, tzinfo=IST), date(2026, 11, 3), "green"),  # before the run
+        (datetime(2026, 11, 5, 5, 59, tzinfo=IST), date(2026, 11, 3), "green"),
+        (datetime(2026, 11, 5, 6, 30, tzinfo=IST), date(2026, 11, 4), "green"),  # after the run
+        (datetime(2026, 11, 5, 23, 59, tzinfo=IST), date(2026, 11, 4), "green"),
+        (datetime(2026, 11, 5, 3, 0, tzinfo=IST), date(2026, 11, 2), "amber"),  # a run was missed
+        (datetime(2026, 11, 5, 12, 0, tzinfo=IST), date(2026, 11, 2), "amber"),
+        (datetime(2026, 11, 5, 12, 0, tzinfo=IST), date(2026, 10, 31), "red"),
+    ],
+)
+def test_on_schedule_data_is_green_all_day(moment, latest, status):
+    assert freshness(latest, ist_today(moment)).status == status

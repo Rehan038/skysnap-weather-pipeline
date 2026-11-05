@@ -72,7 +72,6 @@ def test_duplicate_result_column_names_do_not_crash_the_page(_env):
     assert not at.exception
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING R-09")
 def test_pipeline_on_schedule_is_green_in_the_ist_early_morning():
     """The DAG fires 00:30 UTC (06:00 IST) and loads the previous day.
 

@@ -66,7 +66,6 @@ def test_service_passwords_are_not_literal_defaults(service, key):
     assert ":?" in value, "missing required-variable guard"
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING E-05")
 def test_ci_declares_least_privilege_token_permissions():
     assert CI.get("permissions") == {"contents": "read"}
 
@@ -83,7 +82,6 @@ def test_ci_uses_no_repository_secrets():
     assert "secrets." not in (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING E-06")
 def test_dockerignore_excludes_backups_and_dumps():
     lines = (ROOT / ".dockerignore").read_text(encoding="utf-8").split()
     assert "backup_*.sql" in lines

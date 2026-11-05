@@ -7,6 +7,7 @@ import streamlit as st
 
 from skysnap_ask.db import QueryError, unique_columns
 from skysnap_ask.service import MAX_QUESTION_CHARS
+from skysnap_ask.text import escape_markdown
 
 CITIES = "Bengaluru, Mumbai, Delhi, Chennai, Kolkata"
 RANGE_SQL = "SELECT MIN(DATE(observed_at)), MAX(DATE(observed_at)) FROM weather_hourly"
@@ -48,14 +49,14 @@ def submit() -> None:
 
 def show_result(result) -> None:
     if result.status == "answered":
-        st.success(result.answer)
+        st.success(escape_markdown(result.answer or ""))
         if result.sql:
             st.code(result.sql, language="sql")
         st.dataframe(pd.DataFrame(result.rows, columns=unique_columns(result.columns)))
     elif result.status == "refused":
-        st.info(result.answer)
+        st.info(escape_markdown(result.answer or ""))
     else:
-        st.error(result.error)
+        st.error(escape_markdown(result.error or ""))  # may echo model-chosen identifiers
         if result.sql:
             st.code(result.sql, language="sql")
     if result.context:

@@ -51,7 +51,7 @@ _FROM = "FROM weather_hourly h JOIN dim_city c ON c.city_id = h.city_id"
 
 def date_bounds() -> Query:
     sql = (
-        "SELECT DATE(MIN(observed_at)) AS min_day, DATE(MAX(observed_at)) AS max_day "
+        "SELECT DATE(MIN(observed_at)) AS min_day, DATE(MAX(observed_at)) AS max_day "  # only the int constant AGG_CAP is interpolated; values use %s  # nosec B608
         f"FROM weather_hourly LIMIT {AGG_CAP}"
     )
     return Query(sql, (), AGG_CAP)
@@ -59,7 +59,7 @@ def date_bounds() -> Query:
 
 def health_summary() -> Query:
     sql = (
-        "SELECT (SELECT DATE(MAX(observed_at)) FROM weather_hourly) AS latest_day, "
+        "SELECT (SELECT DATE(MAX(observed_at)) FROM weather_hourly) AS latest_day, "  # only the int constant AGG_CAP is interpolated; values use %s  # nosec B608
         "(SELECT COUNT(*) FROM weather_hourly) AS total_rows, "
         f"(SELECT COUNT(*) FROM weather_rejects) AS rejected_rows LIMIT {AGG_CAP}"
     )
@@ -68,7 +68,7 @@ def health_summary() -> Query:
 
 def rows_per_day(start: date, end: date) -> Query:
     sql = (
-        "SELECT DATE(h.observed_at) AS day, COUNT(*) AS `rows` "
+        "SELECT DATE(h.observed_at) AS day, COUNT(*) AS `rows` "  # only the int constant AGG_CAP is interpolated; values use %s  # nosec B608
         "FROM weather_hourly h "
         "WHERE h.observed_at >= %s AND h.observed_at < %s "
         "GROUP BY DATE(h.observed_at) ORDER BY day "
@@ -79,7 +79,7 @@ def rows_per_day(start: date, end: date) -> Query:
 
 def rejects_by_reason() -> Query:
     sql = (
-        "SELECT reason, COUNT(*) AS `rows` FROM weather_rejects "
+        "SELECT reason, COUNT(*) AS `rows` FROM weather_rejects "  # only the int constant AGG_CAP is interpolated; values use %s  # nosec B608
         f"GROUP BY reason ORDER BY `rows` DESC, reason LIMIT {AGG_CAP}"
     )
     return Query(sql, (), AGG_CAP)
