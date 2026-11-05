@@ -24,3 +24,30 @@ def test_optimizer_hints_are_rejected(sql):
 def test_ordinary_comments_are_not_hints():
     assert guard_sql("SELECT 1 /* a note */")
     assert guard_sql("SELECT /* a note */ 1")
+
+
+def test_sql_longer_than_the_cap_is_rejected_before_parsing():
+    from skysnap_ask.guard import MAX_SQL_CHARS
+
+    assert MAX_SQL_CHARS == 10_000
+    too_long = "SELECT " + "1," * (MAX_SQL_CHARS // 2) + "1"
+    assert len(too_long) > MAX_SQL_CHARS
+    with pytest.raises(UnsafeSQLError, match="too long"):
+        guard_sql(too_long)
+
+
+def test_sql_at_the_cap_is_still_accepted():
+    from skysnap_ask.guard import MAX_SQL_CHARS
+
+    sql = "SELECT 1 /*" + "x" * (MAX_SQL_CHARS - len("SELECT 1 /**/")) + "*/"
+    assert len(sql) == MAX_SQL_CHARS
+    assert guard_sql(sql)
+
+
+@pytest.mark.parametrize("depth", [200, 400, 900])
+def test_deeply_nested_sql_never_raises_recursion_error(depth):
+    sql = "SELECT " + "(" * depth + "1" + ")" * depth
+    try:
+        guard_sql(sql)
+    except UnsafeSQLError:
+        pass  # refused is fine; a RecursionError (any other exception) is not

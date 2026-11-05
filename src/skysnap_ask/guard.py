@@ -10,6 +10,7 @@ from sqlglot.errors import SqlglotError
 
 ALLOWED_TABLES: frozenset[str] = frozenset({"dim_city", "weather_hourly", "weather_rejects"})
 ALLOWED_SCHEMA = "weather"
+MAX_SQL_CHARS = 10_000  # longer statements are refused before parsing
 
 # Function allow-list, by sqlglot node class (MySQL names that sqlglot maps to a dedicated
 # node, e.g. DATE() -> TsOrDsToDate, IFNULL() -> Coalesce, CURDATE() -> CurrentDate).
@@ -89,6 +90,15 @@ def _apply_limit(tree: exp.Expression, max_rows: int) -> exp.Expression:
 
 def guard_sql(sql: str, max_rows: int = 200) -> str:
     """Validate ``sql`` and return safe MySQL text with a LIMIT of at most ``max_rows``."""
+    if len(sql) > MAX_SQL_CHARS:
+        raise UnsafeSQLError(f"SQL is too long (more than {MAX_SQL_CHARS} characters)")
+    try:
+        return _guard(sql, max_rows)
+    except RecursionError as exc:  # parser/generator recursion on deeply nested input
+        raise UnsafeSQLError("SQL is too deeply nested") from exc
+
+
+def _guard(sql: str, max_rows: int) -> str:
     if _INTO_FILE.search(sql):
         raise UnsafeSQLError("INTO is not allowed")
     try:

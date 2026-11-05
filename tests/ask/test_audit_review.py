@@ -39,7 +39,6 @@ def test_cte_name_defined_in_a_subquery_does_not_whitelist_an_outer_table():
         guard_sql("SELECT * FROM x, (WITH x AS (SELECT 1) SELECT * FROM x) y")
 
 
-@pytest.mark.xfail(strict=True, reason="FINDING R-05")
 @pytest.mark.parametrize(
     "sql",
     [
